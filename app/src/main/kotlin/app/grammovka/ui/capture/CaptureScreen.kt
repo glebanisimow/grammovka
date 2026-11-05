@@ -204,7 +204,7 @@ fun CaptureScreen(
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (granted) {
-            CameraPreview(mode, imageCapture, onBarcode = ::onBarcode)
+            CameraPreview(mode, imageCapture, onBarcode = ::onBarcode, onError = { state = CaptureState.Error(it) })
         }
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(GIcons.Back, "Назад", tint = Color.White) }
@@ -259,7 +259,7 @@ fun CaptureScreen(
 }
 
 @Composable
-private fun CameraPreview(mode: CaptureMode, imageCapture: ImageCapture, onBarcode: (String) -> Unit) {
+private fun CameraPreview(mode: CaptureMode, imageCapture: ImageCapture, onBarcode: (String) -> Unit, onError: (String) -> Unit) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
@@ -274,6 +274,7 @@ private fun CameraPreview(mode: CaptureMode, imageCapture: ImageCapture, onBarco
     DisposableEffect(mode) {
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
+          try {
             val provider = providerFuture.get()
             val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
             provider.unbindAll()
@@ -284,6 +285,11 @@ private fun CameraPreview(mode: CaptureMode, imageCapture: ImageCapture, onBarco
             } else {
                 provider.bindToLifecycle(lifecycle, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
             }
+          } catch (e: Exception) {
+            // No back camera, camera busy or unsupported use-case combination: show it instead of crashing.
+            android.util.Log.e("Grammovka", "camera bind failed", e)
+            onError("Камера не запустилась: ${e.message ?: e.javaClass.simpleName}")
+          }
         }, ContextCompat.getMainExecutor(context))
         onDispose { runCatching { providerFuture.get().unbindAll() } }
     }
