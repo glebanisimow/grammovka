@@ -13,6 +13,11 @@ import app.grammovka.ui.nav.AppRoot
 import app.grammovka.ui.theme.GrammovkaTheme
 
 class MainActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        (application as GrammovkaApp).container.modelHub.refreshDate()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

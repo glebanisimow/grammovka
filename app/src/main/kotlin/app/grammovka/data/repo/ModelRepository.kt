@@ -6,6 +6,7 @@ import app.grammovka.data.db.WeightEntryEntity
 import app.grammovka.data.settings.ProfileSettings
 import app.grammovka.domain.engine.DayIntake
 import app.grammovka.domain.engine.EnergyModel
+import app.grammovka.domain.engine.Profile
 import app.grammovka.domain.engine.Snapshot
 import app.grammovka.domain.engine.Warning
 import app.grammovka.domain.model.WeightSource
@@ -22,12 +23,30 @@ class WeightRepository(db: AppDatabase) {
     fun observeAll(): Flow<List<WeightEntryEntity>> = dao.observeAll()
 }
 
-/** Today's numbers for the UI; all arithmetic comes from the domain engine. */
+/** One day's numbers for the UI; all arithmetic comes from the domain engine. */
 data class DayModel(
     val snapshot: Snapshot,
     val allowance: Double,
     val warnings: Set<Warning>,
 )
+
+/** Result of a model replay: the per-day snapshots plus what is needed to derive any day's budget. */
+class ModelState(
+    private val engine: EnergyModel,
+    private val profile: Profile,
+    private val days: Map<LocalDate, DayIntake>,
+    private val weights: Map<LocalDate, Double>,
+    val snapshots: Map<LocalDate, Snapshot>,
+) {
+    fun day(date: LocalDate): DayModel? {
+        val s = snapshots[date] ?: return null
+        return DayModel(
+            snapshot = s,
+            allowance = engine.allowance(date, s.target, profile.budgetMode, days),
+            warnings = engine.warnings(date, profile, s, days, weights),
+        )
+    }
+}
 
 /**
  * Recomputes ModelSnapshot rows. A full replay from the first weigh-in is cheap (a few hundred days)
@@ -43,8 +62,8 @@ class ModelRepository(
 
     fun observeAll(): Flow<List<ModelSnapshotEntity>> = snapshots.observeAll()
 
-    /** Returns today's model, or null when the profile is incomplete or there is no weigh-in yet. */
-    suspend fun recompute(profileSettings: ProfileSettings, today: LocalDate): DayModel? {
+    /** Null when the profile is incomplete or there is no weigh-in yet. */
+    suspend fun recompute(profileSettings: ProfileSettings, today: LocalDate): ModelState? {
         val profile = profileSettings.toProfile(today)
         val allWeights = weights.all().associate { it.date to it.kg }
         val first = allWeights.keys.minOrNull()
@@ -56,12 +75,7 @@ class ModelRepository(
         val run = engine.run(first, today, profile, days, allWeights, previousTdee = null)
         snapshots.deleteFrom(LocalDate.MIN)
         snapshots.upsertAll(run.map { it.toEntity() })
-        val s = run.lastOrNull() ?: return null
-        return DayModel(
-            snapshot = s,
-            allowance = engine.allowance(today, s.target, profile.budgetMode, days),
-            warnings = engine.warnings(today, profile, s, days, allWeights),
-        )
+        return ModelState(engine, profile, days, allWeights, run.associateBy { it.date })
     }
 
     private fun Snapshot.toEntity() = ModelSnapshotEntity(

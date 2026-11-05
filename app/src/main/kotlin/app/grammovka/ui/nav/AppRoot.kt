@@ -12,6 +12,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -19,21 +22,32 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.toRoute
 import app.grammovka.di.AppContainer
+import app.grammovka.ui.capture.CaptureMode
+import app.grammovka.ui.capture.CaptureScreen
 import app.grammovka.ui.catalog.CatalogScreen
+import app.grammovka.ui.catalog.FoodEditScreen
 import app.grammovka.ui.icons.GIcons
 import app.grammovka.ui.progress.ProgressScreen
+import app.grammovka.ui.review.ReviewRoot
 import app.grammovka.ui.settings.KeysScreen
+import app.grammovka.ui.settings.ProfileScreen
 import app.grammovka.ui.settings.SettingsScreen
 import app.grammovka.ui.theme.GTheme
 import app.grammovka.ui.today.TodayScreen
 import kotlinx.serialization.Serializable
+import java.time.LocalDate
 
 @Serializable object TodayRoute
 @Serializable object CatalogRoute
 @Serializable object ProgressRoute
 @Serializable object SettingsRoute
 @Serializable object KeysRoute
+@Serializable object ProfileRoute
+@Serializable object ReviewRoute
+@Serializable data class FoodEditRoute(val id: Long = -1, val barcode: String = "")
+@Serializable data class CaptureRoute(val date: String, val mode: String)
 
 private data class Tab(val route: Any, val label: String, val icon: ImageVector)
 
@@ -82,13 +96,40 @@ fun AppRoot(container: AppContainer) {
         },
     ) { padding ->
         NavHost(nav, startDestination = TodayRoute, modifier = Modifier.padding(padding)) {
-            composable<TodayRoute> { TodayScreen() }
-            composable<CatalogRoute> { CatalogScreen() }
-            composable<ProgressRoute> { ProgressScreen() }
+            composable<TodayRoute> {
+                TodayScreen(
+                    container,
+                    onReview = { container.reviewInbox.pending = it; nav.navigate(ReviewRoute) },
+                    onScan = { nav.navigate(CaptureRoute(it.toString(), CaptureMode.BARCODE.name)) },
+                    onLabel = { nav.navigate(CaptureRoute(it.toString(), CaptureMode.LABEL.name)) },
+                    onOpenProfile = { nav.navigate(ProfileRoute) },
+                )
+            }
+            composable<CatalogRoute> {
+                CatalogScreen(container, onOpen = { nav.navigate(FoodEditRoute(it)) }, onCreate = { nav.navigate(FoodEditRoute()) })
+            }
+            composable<ProgressRoute> { ProgressScreen(container) }
             composable<SettingsRoute> {
-                SettingsScreen(container, onOpenKeys = { nav.navigate(KeysRoute) })
+                SettingsScreen(container, onOpenKeys = { nav.navigate(KeysRoute) }, onOpenProfile = { nav.navigate(ProfileRoute) })
             }
             composable<KeysRoute> { KeysScreen(container, onBack = { nav.popBackStack() }) }
+            composable<ProfileRoute> { ProfileScreen(container, onBack = { nav.popBackStack() }) }
+            composable<FoodEditRoute> { entry ->
+                val r = entry.toRoute<FoodEditRoute>()
+                FoodEditScreen(container, r.id.takeIf { it > 0 }, r.barcode.ifEmpty { null }, onBack = { nav.popBackStack() })
+            }
+            composable<ReviewRoute> { ReviewRoot(container, onBack = { nav.popBackStack() }) }
+            composable<CaptureRoute> { entry ->
+                val r = entry.toRoute<CaptureRoute>()
+                CaptureScreen(
+                    container, LocalDate.parse(r.date), CaptureMode.valueOf(r.mode),
+                    onReview = { req ->
+                        container.reviewInbox.pending = req
+                        nav.navigate(ReviewRoute) { popUpTo<CaptureRoute> { inclusive = true } }
+                    },
+                    onBack = { nav.popBackStack() },
+                )
+            }
         }
     }
 }

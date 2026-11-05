@@ -35,13 +35,15 @@ import app.grammovka.update.AppUpdateSection
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(container: AppContainer, onOpenKeys: () -> Unit) {
+fun SettingsScreen(container: AppContainer, onOpenKeys: () -> Unit, onOpenProfile: () -> Unit) {
     val settings by container.settingsStore.settings.collectAsStateWithLifecycle(AppSettings())
     val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         ScreenTitle("Настройки")
-        SettingsRow(GIcons.Key, "Ключи API", "Anthropic и USDA: ввод и проверка", onOpenKeys)
+        SettingsRow(GIcons.Scale, "Профиль и цель", "Рост, возраст, активность, темп, белок, режим бюджета", onOpenProfile)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        SettingsRow(GIcons.Key, "Ключи API и Claude", "Anthropic и USDA, модели, месячный лимит", onOpenKeys)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

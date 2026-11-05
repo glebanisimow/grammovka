@@ -1,6 +1,13 @@
 package app.grammovka.di
 
 import android.content.Context
+import app.grammovka.BuildConfig
+import app.grammovka.data.ai.AiCostTracker
+import app.grammovka.data.ai.AiService
+import app.grammovka.data.ai.ClaudeClient
+import app.grammovka.data.remote.OffClient
+import app.grammovka.data.remote.RemoteCache
+import app.grammovka.data.remote.UsdaClient
 import app.grammovka.data.db.AppDatabase
 import app.grammovka.data.keys.AnthropicKeyVerifier
 import app.grammovka.data.keys.KeyVerifier
@@ -9,6 +16,12 @@ import app.grammovka.data.settings.SecretStore
 import app.grammovka.data.settings.SettingsStore
 import app.grammovka.data.repo.FoodRepository
 import app.grammovka.data.repo.LogRepository
+import app.grammovka.data.repo.ModelHub
+import app.grammovka.ui.review.LogEvents
+import app.grammovka.ui.review.ReviewInbox
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import app.grammovka.data.repo.ModelRepository
 import app.grammovka.data.repo.WeightRepository
 import app.grammovka.domain.log.QuickLogPlanner
@@ -43,4 +56,16 @@ class AppContainer(context: Context) {
     val weightRepository by lazy { WeightRepository(database) }
     val modelRepository by lazy { ModelRepository(database, logRepository) }
     val quickLogPlanner by lazy { QuickLogPlanner(foodRepository) }
+
+    /** Lives as long as the process; used for app-wide flows such as the model replay. */
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val modelHub by lazy { ModelHub(appScope, settingsStore, logRepository, weightRepository, modelRepository) }
+    val reviewInbox = ReviewInbox()
+
+    val remoteCache by lazy { RemoteCache(database.remoteCacheDao()) }
+    val offClient by lazy { OffClient(httpClient, remoteCache, "Grammovka/${BuildConfig.VERSION_NAME} (github.com/glebanisimow/grammovka)") }
+    val usdaClient by lazy { UsdaClient(httpClient, remoteCache, secretStore) }
+    val aiCostTracker by lazy { AiCostTracker(database.aiCallLogDao()) }
+    val aiService by lazy { AiService(ClaudeClient(httpClient), secretStore, settingsStore, aiCostTracker, usdaClient, offClient) }
+    val logEvents = LogEvents()
 }

@@ -69,6 +69,8 @@ class LogRepository(
 
     fun observeChanges(): Flow<String> = logDao.observeChecksum()
 
+    fun observeStatusChanges(): Flow<List<DayStatusEntity>> = statusDao.observeAll()
+
     /** Per-day totals for the engine. Days with no entries are absent. */
     suspend fun intake(from: LocalDate, to: LocalDate): Map<LocalDate, DayIntake> {
         val statuses = statusDao.between(from, to).associateBy { it.date }
