@@ -29,7 +29,7 @@ fun ReviewRoot(container: AppContainer, onBack: () -> Unit) {
             initializer {
                 val req = container.reviewInbox.pending
                 container.reviewInbox.pending = null
-                ReviewViewModel(req, container.foodRepository, container.logRepository, container.logEvents, container.aiService)
+                ReviewViewModel(req, container.foodRepository, container.logRepository, container.logEvents, container.aiService, container.pendingRepository)
             }
         },
     )
@@ -38,6 +38,7 @@ fun ReviewRoot(container: AppContainer, onBack: () -> Unit) {
         extraActions = { item ->
             if (vm.hasKey) {
                 AssistChip(onClick = { vm.resolveWithAi(item) }, enabled = !vm.aiRunning, label = { Text("Найти через Claude") })
+                AssistChip(onClick = { vm.defer(item) }, label = { Text("Отложить до сети") })
             }
         },
         status = { AiStatus(vm) },
@@ -61,5 +62,19 @@ private fun AiStatus(vm: ReviewViewModel) {
             color = if (vm.aiRunning || noKeyHint) GTheme.extra.textMuted else MaterialTheme.colorScheme.error,
         )
         if (vm.aiRunning) OutlinedButton(onClick = vm::stopAi, shape = MaterialTheme.shapes.small) { Text("Остановить") }
+    }
+    // Typically a network error: offer to keep the unrecognized lines until the network is back.
+    if (!vm.aiRunning && status != null && vm.hasKey && vm.items.any { it is ReviewItem.Unresolved }) {
+        OutlinedButton(
+            onClick = vm::deferAllUnresolved,
+            modifier = Modifier.padding(horizontal = 16.dp),
+            shape = MaterialTheme.shapes.small,
+        ) { Text("Отложить нераспознанное до сети") }
+    }
+    if (vm.deferred > 0) {
+        Text(
+            "Отложено: ${vm.deferred}. Когда появится сеть, придёт уведомление, и Claude разберёт отложенное на этом же экране.",
+            Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+        )
     }
 }

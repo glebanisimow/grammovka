@@ -29,14 +29,22 @@ class MainActivity : ComponentActivity() {
         intent?.getStringExtra("debug_label")?.let { c.debugCapture.value = "label:$it" }
     }
 
+    private fun handleOpenPending(intent: Intent?) {
+        if (intent?.getBooleanExtra(app.grammovka.notify.Notifications.EXTRA_OPEN_PENDING, false) == true) {
+            (application as GrammovkaApp).container.openPending.value = true
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleDebugInput(intent)
+        handleOpenPending(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleDebugInput(intent)
+        handleOpenPending(intent)
         enableEdgeToEdge()
         val container = (application as GrammovkaApp).container
         setContent {

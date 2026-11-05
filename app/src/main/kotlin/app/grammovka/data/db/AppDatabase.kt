@@ -50,6 +50,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun remoteCacheDao(): RemoteCacheDao
     abstract fun recipeDao(): RecipeDao
     abstract fun templateDao(): TemplateDao
+    abstract fun pendingDao(): PendingDao
 
     companion object {
         const val NAME = "grammovka.db"
@@ -73,13 +74,14 @@ object Migrations {
         }
     }
 
-    /** v3: recipe → materialized food link; optional meal on log entries. */
+    /** v3: recipe → materialized food link; optional meal on log entries and deferred items. */
     val M2_3 = object : Migration(2, 3) {
         override fun migrate(db: SupportSQLiteDatabase) {
             // ADD COLUMN with REFERENCES is allowed because the implicit default is NULL.
             db.execSQL("ALTER TABLE `recipe` ADD COLUMN `foodId` INTEGER REFERENCES `food`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL")
             db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_recipe_foodId` ON `recipe` (`foodId`)")
             db.execSQL("ALTER TABLE `log_entry` ADD COLUMN `meal` TEXT")
+            db.execSQL("ALTER TABLE `pending_item` ADD COLUMN `meal` TEXT")
         }
     }
 

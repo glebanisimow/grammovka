@@ -32,6 +32,9 @@ import app.grammovka.ui.catalog.RecipeEditScreen
 import app.grammovka.domain.model.FoodSource
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.grammovka.ui.review.ReviewRequest
 import app.grammovka.ui.icons.GIcons
 import app.grammovka.ui.progress.ProgressScreen
 import app.grammovka.ui.review.ReviewRoot
@@ -69,6 +72,24 @@ fun AppRoot(container: AppContainer) {
     val backStack by nav.currentBackStackEntryAsState()
     val dest = backStack?.destination
     val onTab = tabs.any { t -> dest?.hierarchy?.any { it.hasRoute(t.route::class) } == true }
+    val rootScope = rememberCoroutineScope()
+
+    /** Deferred items of the oldest date go to the confirm screen; Claude resolves them there. */
+    val openPending: () -> Unit = {
+        rootScope.launch {
+            val b = container.pendingRepository.nextBatch() ?: return@launch
+            val plan = container.quickLogPlanner.plan(b.text).let { if (b.meal != null) it.copy(meal = b.meal) else it }
+            container.reviewInbox.pending = ReviewRequest(b.date, b.method, plan, pendingIds = b.ids, pendingTime = b.time)
+            nav.navigate(ReviewRoute)
+        }
+    }
+    val openPendingSignal by container.openPending.collectAsStateWithLifecycle()
+    LaunchedEffect(openPendingSignal) {
+        if (openPendingSignal) {
+            container.openPending.value = false
+            openPending()
+        }
+    }
 
     Scaffold(
         bottomBar = {
@@ -108,6 +129,7 @@ fun AppRoot(container: AppContainer) {
                     onScan = { nav.navigate(CaptureRoute(it.toString(), CaptureMode.BARCODE.name)) },
                     onLabel = { nav.navigate(CaptureRoute(it.toString(), CaptureMode.LABEL.name)) },
                     onOpenProfile = { nav.navigate(ProfileRoute) },
+                    onOpenPending = openPending,
                 )
             }
             composable<CatalogRoute> {

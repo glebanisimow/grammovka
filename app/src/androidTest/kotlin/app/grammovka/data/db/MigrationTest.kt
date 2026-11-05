@@ -50,6 +50,7 @@ class MigrationTest {
                     "VALUES (1, 'Гречка', '', 'гречка', 110, 4, 1, 21, 'COOKED', 'MANUAL', 0, 0, 0, 0)",
             )
             execSQL("INSERT INTO recipe (id, name, cookedWeightG) VALUES (1, 'Плов', 1200)")
+            execSQL("INSERT INTO pending_item (createdAt, date, time, text, inputMethod) VALUES (0, '2026-11-05', '08:30', 'азиатская груша 230', 'TEXT')")
             execSQL(
                 "INSERT INTO log_entry (date, time, foodId, foodName, grams, kcal, protein, fat, carbs, inputMethod) " +
                     "VALUES ('2026-11-05', '08:30', 1, 'Гречка', 200, 220, 8, 2, 42, 'TEXT')",
@@ -59,6 +60,7 @@ class MigrationTest {
         helper.runMigrationsAndValidate(dbName, 3, true, Migrations.M2_3).use { db ->
             db.query("SELECT foodId FROM recipe WHERE id = 1").use { assertEquals(true, it.moveToFirst() && it.isNull(0)) }
             db.query("SELECT meal FROM log_entry").use { assertEquals(true, it.moveToFirst() && it.isNull(0)) }
+            db.query("SELECT meal, text FROM pending_item").use { assertEquals(true, it.moveToFirst() && it.isNull(0) && it.getString(1) == "азиатская груша 230") }
             db.execSQL("UPDATE recipe SET foodId = 1 WHERE id = 1")
             db.execSQL("UPDATE log_entry SET meal = 'BREAKFAST'")
         }

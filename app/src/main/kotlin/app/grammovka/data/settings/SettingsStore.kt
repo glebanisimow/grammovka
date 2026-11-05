@@ -3,6 +3,7 @@ package app.grammovka.data.settings
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -51,8 +52,17 @@ object AiDefaults {
     fun model(p: AiPurpose): String = if (p == AiPurpose.PARSE) FAST else STRONG
 }
 
+/** Morning question «вчера всё записано?». Off until the user turns it on (notification permission is asked then). */
+data class ReminderSettings(
+    val enabled: Boolean = false,
+    val minuteOfDay: Int = 9 * 60,
+    /** The one-time offer on Today was answered (either way). */
+    val offered: Boolean = false,
+)
+
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val reminder: ReminderSettings = ReminderSettings(),
     val aiMonthlyLimitUsd: Double = 5.0,
     val profile: ProfileSettings = ProfileSettings(),
     val models: Map<AiPurpose, String> = AiPurpose.entries.associateWith(AiDefaults::model),
@@ -69,6 +79,9 @@ class SettingsStore(private val context: Context) {
         val rate = doublePreferencesKey("profile_rate_pct")
         val protein = doublePreferencesKey("profile_protein_per_kg")
         val budgetMode = stringPreferencesKey("profile_budget_mode")
+        val reminderOn = booleanPreferencesKey("reminder_enabled")
+        val reminderMinute = intPreferencesKey("reminder_minute")
+        val reminderOffered = booleanPreferencesKey("reminder_offered")
         fun model(p: AiPurpose) = stringPreferencesKey("ai_model_${p.name}")
     }
 
@@ -78,6 +91,11 @@ class SettingsStore(private val context: Context) {
         AppSettings(
             themeMode = p[K.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: d.themeMode,
             aiMonthlyLimitUsd = p[K.aiLimit] ?: d.aiMonthlyLimitUsd,
+            reminder = ReminderSettings(
+                enabled = p[K.reminderOn] ?: false,
+                minuteOfDay = p[K.reminderMinute] ?: d.reminder.minuteOfDay,
+                offered = p[K.reminderOffered] ?: false,
+            ),
             profile = ProfileSettings(
                 sex = p[K.sex]?.let { runCatching { Sex.valueOf(it) }.getOrNull() },
                 birthYear = p[K.birthYear],
@@ -95,6 +113,14 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.settingsDataStore.edit { it[K.theme] = mode.name }
+    }
+
+    suspend fun setReminder(r: ReminderSettings) {
+        context.settingsDataStore.edit {
+            it[K.reminderOn] = r.enabled
+            it[K.reminderMinute] = r.minuteOfDay
+            it[K.reminderOffered] = r.offered
+        }
     }
 
     suspend fun setAiMonthlyLimit(usd: Double) {

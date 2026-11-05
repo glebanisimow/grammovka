@@ -69,6 +69,9 @@ data class ReviewRequest(
     val plan: LogPlan? = null,
     val drafts: List<Pair<FoodDraft, String?>> = emptyList(),
     val grams: Double? = null,
+    /** Deferred items this request came from; removed from the queue once logged. */
+    val pendingIds: List<Long> = emptyList(),
+    val pendingTime: LocalTime? = null,
 )
 
 class ReviewInbox {
@@ -95,7 +98,18 @@ class ReviewViewModel(
     private val logs: LogRepository,
     private val events: LogEvents,
     private val ai: AiService? = null,
+    private val pending: app.grammovka.data.repo.PendingRepository? = null,
 ) : ViewModel() {
+    private val pendingIds = request?.pendingIds.orEmpty()
+    private val time: LocalTime = request?.pendingTime ?: if (request?.date == null || request.date == LocalDate.now()) {
+        LocalTime.now().withSecond(0).withNano(0)
+    } else {
+        LocalTime.NOON
+    }
+
+    /** Lines deferred until the network is back during this review. */
+    var deferred by mutableStateOf(0)
+        private set
     val date: LocalDate = request?.date ?: LocalDate.now()
     private val method = request?.method ?: InputMethod.TEXT
 
@@ -214,6 +228,16 @@ class ReviewViewModel(
         }
     }
 
+    /** Keeps the line's text in the offline queue and removes it from this review. */
+    fun defer(item: ReviewItem.Unresolved) {
+        val p = pending ?: return
+        items.remove(item)
+        deferred++
+        viewModelScope.launch { p.add(date, time, item.fragment.raw, method, meal) }
+    }
+
+    fun deferAllUnresolved() = items.filterIsInstance<ReviewItem.Unresolved>().forEach(::defer)
+
     fun remove(item: ReviewItem) {
         items.remove(item)
     }
@@ -247,7 +271,7 @@ class ReviewViewModel(
     }
 
     fun problem(): String? = when {
-        items.isEmpty() -> "Нечего записывать."
+        items.isEmpty() && deferred == 0 && pendingIds.isEmpty() -> "Нечего записывать."
         items.any { it is ReviewItem.Unresolved } -> "Есть нераспознанные позиции: выберите продукт, введите вручную или уберите."
         items.any { it is ReviewItem.Matched && it.selected == null } -> "Выберите продукт в каждой строке."
         items.any { it.grams.toDecimal()?.takeIf { g -> g > 0 } == null } -> "Укажите вес в каждой строке."
@@ -277,9 +301,9 @@ class ReviewViewModel(
                     is ReviewItem.Unresolved -> error("unreachable")
                 }
             }
-            val time = if (date == LocalDate.now()) LocalTime.now().withSecond(0).withNano(0) else LocalTime.NOON
-            val ids = logs.log(date, time, entries)
-            events.emit(LoggedEvent(ids, ids.size, entries.sumOf { Nutrition.forGrams(it.per100, it.grams).kcal }))
+            val ids = if (entries.isEmpty()) emptyList() else logs.log(date, time, entries)
+            if (pendingIds.isNotEmpty()) pending?.delete(pendingIds)
+            if (ids.isNotEmpty()) events.emit(LoggedEvent(ids, ids.size, entries.sumOf { Nutrition.forGrams(it.per100, it.grams).kcal }))
             busy = false
             onDone()
         }

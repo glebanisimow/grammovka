@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 3,
-    "identityHash": "26bd5411d8f768f8cf4e5d9f6bfe8624",
+    "identityHash": "a71088212eccd926fb7992f6b3214c4b",
     "entities": [
       {
         "tableName": "food",
@@ -849,7 +849,7 @@
       },
       {
         "tableName": "pending_item",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `createdAt` INTEGER NOT NULL, `date` TEXT NOT NULL, `time` TEXT NOT NULL, `text` TEXT NOT NULL, `inputMethod` TEXT NOT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `createdAt` INTEGER NOT NULL, `date` TEXT NOT NULL, `time` TEXT NOT NULL, `text` TEXT NOT NULL, `inputMethod` TEXT NOT NULL, `meal` TEXT)",
         "fields": [
           {
             "fieldPath": "id",
@@ -886,6 +886,11 @@
             "columnName": "inputMethod",
             "affinity": "TEXT",
             "notNull": true
+          },
+          {
+            "fieldPath": "meal",
+            "columnName": "meal",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -928,7 +933,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '26bd5411d8f768f8cf4e5d9f6bfe8624')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a71088212eccd926fb7992f6b3214c4b')"
     ]
   }
 }

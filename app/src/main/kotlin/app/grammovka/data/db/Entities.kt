@@ -186,7 +186,7 @@ data class AiCallLogEntity(
     val errorCode: String? = null,
 )
 
-/** Input that could not be resolved offline; retried when the network is back (phase 2). */
+/** Fragments deferred without network; offered for review again when the network is back. */
 @Entity(tableName = "pending_item")
 data class PendingItemEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -195,6 +195,7 @@ data class PendingItemEntity(
     val time: LocalTime,
     val text: String,
     val inputMethod: InputMethod,
+    val meal: Meal? = null,
 )
 
 /**

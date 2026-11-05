@@ -202,3 +202,12 @@ interface TemplateDao {
     )
     suspend fun items(templateId: Long): List<FoodLineRow>
 }
+
+@Dao
+interface PendingDao {
+    @Insert suspend fun insert(p: PendingItemEntity): Long
+    @Query("DELETE FROM pending_item WHERE id IN (:ids)") suspend fun delete(ids: List<Long>)
+    @Query("SELECT * FROM pending_item ORDER BY date, time, id") suspend fun all(): List<PendingItemEntity>
+    @Query("SELECT COUNT(*) FROM pending_item") fun observeCount(): Flow<Int>
+    @Query("SELECT COUNT(*) FROM pending_item") suspend fun count(): Int
+}

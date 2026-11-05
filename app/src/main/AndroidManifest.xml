@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Voice input (SpeechRecognizer); requested on the first tap on the mic. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Android 13+: asked when the user turns on the morning question or defers items. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- In-app updates from the public GitHub release (Настройки → Обновление). -->
@@ -38,6 +40,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".notify.ReminderActionReceiver"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

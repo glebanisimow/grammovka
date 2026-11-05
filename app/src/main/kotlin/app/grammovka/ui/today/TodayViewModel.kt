@@ -42,6 +42,8 @@ data class TodayUi(
     val weightKg: Double? = null,
     val incomplete: Boolean = false,
     val chips: List<Chip> = emptyList(),
+    val pending: Int = 0,
+    val offerReminder: Boolean = false,
     val repeats: List<RepeatMeal> = emptyList(),
     val templates: List<TemplateView> = emptyList(),
 )
@@ -65,11 +67,13 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
         }
     }
 
-    private val shortcuts = combine(c.foodRepository.observeUsed(), c.templateRepository.observe()) { used, t -> used to t }
+    private data class Shortcuts(val used: List<UsedFoodRow>, val templates: List<TemplateView>, val pending: Int)
+
+    private val shortcuts = combine(c.foodRepository.observeUsed(), c.templateRepository.observe(), c.pendingRepository.observeCount(), ::Shortcuts)
 
     val ui: StateFlow<TodayUi> = combine(
         date, dayData, c.modelHub.state, c.settingsStore.settings, shortcuts,
-    ) { d, (entries, w, inc, repeats), model, settings, (used, templates) ->
+    ) { d, (entries, w, inc, repeats), model, settings, (used, templates, pending) ->
         TodayUi(
             date = d,
             entries = entries,
@@ -81,6 +85,9 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
             chips = chips(used),
             repeats = repeats,
             templates = templates,
+            pending = pending,
+            // Offered once, after the first day with entries: the question only makes sense then.
+            offerReminder = !settings.reminder.offered && !settings.reminder.enabled && used.isNotEmpty(),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodayUi())
 
@@ -160,6 +167,15 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
 
     fun setMeal(e: LogEntryEntity, meal: Meal?) {
         viewModelScope.launch { c.logRepository.setMeal(e, meal) }
+    }
+
+    /** Answer to the one-time offer of the morning question. */
+    fun answerReminderOffer(enable: Boolean) {
+        viewModelScope.launch {
+            val r = c.settingsStore.current().reminder.copy(enabled = enable, offered = true)
+            c.settingsStore.setReminder(r)
+            app.grammovka.notify.Reminder.schedule(c.appContext, r)
+        }
     }
 
     fun undo(ids: List<Long>) {

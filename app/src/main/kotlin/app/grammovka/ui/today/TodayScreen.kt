@@ -94,6 +94,7 @@ fun TodayScreen(
     onScan: (LocalDate) -> Unit,
     onLabel: (LocalDate) -> Unit,
     onOpenProfile: () -> Unit,
+    onOpenPending: () -> Unit,
 ) {
     val vm: TodayViewModel = viewModel(factory = viewModelFactory { initializer { TodayViewModel(container) } })
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -131,6 +132,14 @@ fun TodayScreen(
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                 item { DayHeader(ui.date, vm::shiftDay) }
                 item { Budget(ui, onOpenProfile, onWeight = { weightDialog = true }) }
+                if (ui.pending > 0) {
+                    item {
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            Notice("Отложено до сети: ${ui.pending}. Claude разберёт, вы подтвердите.", "Разобрать", onOpenPending)
+                        }
+                    }
+                }
+                if (ui.offerReminder) item { ReminderOffer(vm) }
                 if (ui.chips.isNotEmpty() || ui.repeats.isNotEmpty() || ui.templates.isNotEmpty() || ui.entries.isNotEmpty()) {
                     item { Chips(ui, vm, onTemplates = { templatesDialog = true }) }
                 }
@@ -264,6 +273,29 @@ private fun Flags(m: app.grammovka.data.repo.DayModel) {
         }
     }
     lines.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = GTheme.extra.accentText) }
+}
+
+/** Contextual permission request: notifications are asked for only when the user turns the question on. */
+@Composable
+private fun ReminderOffer(vm: TodayViewModel) {
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> vm.answerReminderOffer(granted) }
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text("Спрашивать утром «вчера всё записано?»", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "В 9:00 придёт уведомление с кнопками «да» и «нет — неполный». Неполные дни модель не учитывает. Время меняется в настройках.",
+            style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+        )
+        Row {
+            TextButton(onClick = {
+                if (android.os.Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS) else vm.answerReminderOffer(true)
+            }) { Text("Включить") }
+            TextButton(onClick = { vm.answerReminderOffer(false) }) { Text("Не нужно") }
+        }
+    }
 }
 
 @Composable

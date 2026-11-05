@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit
 
 /** Manual DI: one instance per process, owned by [app.grammovka.GrammovkaApp]. */
 class AppContainer(context: Context) {
-    private val appContext = context.applicationContext
+    val appContext: android.content.Context = context.applicationContext
 
     val database: AppDatabase by lazy { AppDatabase.build(appContext) }
     val settingsStore by lazy { SettingsStore(appContext) }
@@ -54,6 +54,10 @@ class AppContainer(context: Context) {
     val foodRepository by lazy { FoodRepository(database.foodDao()) }
     val logRepository by lazy { LogRepository(database) }
     val templateRepository by lazy { app.grammovka.data.repo.TemplateRepository(database) }
+    val pendingRepository by lazy { app.grammovka.data.repo.PendingRepository(appContext, database.pendingDao()) }
+
+    /** Set by a «сеть появилась» notification tap; AppRoot opens the review of deferred items. */
+    val openPending = kotlinx.coroutines.flow.MutableStateFlow(false)
     val recipeRepository by lazy { app.grammovka.data.repo.RecipeRepository(database, foodRepository) }
     val weightRepository by lazy { WeightRepository(database) }
     val modelRepository by lazy { ModelRepository(database, logRepository) }

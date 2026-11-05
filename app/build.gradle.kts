@@ -118,6 +118,10 @@ dependencies {
     ksp(libs.room.compiler)
 
     implementation(libs.camerax.camera2)
+    implementation(libs.work.runtime)
+    implementation(libs.glance.appwidget)
+    implementation(libs.glance.material3)
+    implementation(libs.health.connect)
     implementation(libs.camerax.lifecycle)
     implementation(libs.camerax.view)
     implementation(libs.mlkit.barcode)
