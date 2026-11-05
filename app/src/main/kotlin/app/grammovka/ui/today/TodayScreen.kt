@@ -52,6 +52,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.grammovka.data.db.LogEntryEntity
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import app.grammovka.domain.model.InputMethod
+import app.grammovka.domain.parse.VoiceText
+import kotlinx.coroutines.launch
 import app.grammovka.data.repo.TemplateView
 import app.grammovka.domain.model.Meal
 import app.grammovka.ui.common.MealChips
@@ -88,6 +99,7 @@ fun TodayScreen(
     val ui by vm.ui.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var weightDialog by remember { mutableStateOf(false) }
     var editEntry by remember { mutableStateOf<LogEntryEntity?>(null) }
     var templatesDialog by remember { mutableStateOf(false) }
@@ -96,7 +108,12 @@ fun TodayScreen(
         container.debugInput.collect { text ->
             if (text != null) {
                 container.debugInput.value = null
-                vm.submit(text, onReview) {}
+                // «voice:…» simulates a final speech result (debug builds only).
+                if (text.startsWith("voice:")) {
+                    vm.submit(VoiceText.toInput(text.removePrefix("voice:")), onReview, InputMethod.VOICE) {}
+                } else {
+                    vm.submit(text, onReview) {}
+                }
             }
         }
     }
@@ -136,7 +153,12 @@ fun TodayScreen(
                 }
                 items(ui.entries, key = { it.id }) { e -> EntryRow(e) { editEntry = e } }
             }
-            InputBar(busy, onSubmit = { text, clear -> vm.submit(text, { r -> clear(); onReview(r) }) { clear() } }, onScan = { onScan(ui.date) }, onLabel = { onLabel(ui.date) })
+            InputBar(
+                busy,
+                onSubmit = { text, method, clear -> vm.submit(text, { r -> clear(); onReview(r) }, method) { clear() } },
+                onScan = { onScan(ui.date) }, onLabel = { onLabel(ui.date) },
+                onMessage = { msg -> scope.launch { snackbar.showSnackbar(msg, duration = SnackbarDuration.Short) } },
+            )
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp))
     }
@@ -369,23 +391,57 @@ private fun EntryRow(e: LogEntryEntity, onClick: () -> Unit) {
 }
 
 @Composable
-private fun InputBar(busy: Boolean, onSubmit: (String, () -> Unit) -> Unit, onScan: () -> Unit, onLabel: () -> Unit) {
+private fun InputBar(
+    busy: Boolean,
+    onSubmit: (String, InputMethod, () -> Unit) -> Unit,
+    onScan: () -> Unit,
+    onLabel: () -> Unit,
+    onMessage: (String) -> Unit,
+) {
     var text by rememberSaveable { mutableStateOf("") }
-    val send = { if (text.isNotBlank()) onSubmit(text) { text = "" } }
+    val send = { if (text.isNotBlank()) onSubmit(text, InputMethod.TEXT) { text = "" } }
+    val voice = rememberVoiceController()
+    val context = LocalContext.current
+    val listen = {
+        voice.start(
+            onFinal = { spoken ->
+                text = VoiceText.toInput(spoken)
+                onSubmit(text, InputMethod.VOICE) { text = "" }
+            },
+            onError = onMessage,
+        )
+    }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) listen() else onMessage("Без доступа к микрофону голосовой ввод не работает. Разрешение можно дать в настройках Android.")
+    }
+    val onMic = {
+        when {
+            voice.listening -> voice.stop()
+            !voice.available -> onMessage("На телефоне нет службы распознавания речи.")
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> listen()
+            else -> micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
     Row(
         Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         OutlinedTextField(
-            value = text, onValueChange = { text = it },
+            value = if (voice.listening) voice.partial else text, onValueChange = { text = it },
             modifier = Modifier.weight(1f),
-            placeholder = { Text("творог 150, кофе с молоком…") },
+            placeholder = { Text(if (voice.listening) "Говорите: «творог 150 и банан»" else "творог 150, кофе с молоком…") },
             maxLines = 3,
-            enabled = !busy,
+            enabled = !busy && !voice.listening,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
             keyboardActions = KeyboardActions(onSend = { send() }),
             trailingIcon = if (text.isNotBlank()) ({ IconButton(onClick = send) { Icon(GIcons.Check, "Записать", tint = GTheme.extra.accentText) } }) else null,
         )
+        IconButton(onClick = onMic, Modifier.size(48.dp)) {
+            Icon(
+                GIcons.Mic, if (voice.listening) "Остановить запись" else "Голосовой ввод",
+                tint = if (voice.listening) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+            )
+        }
         IconButton(onClick = onScan, Modifier.size(48.dp)) { Icon(GIcons.Barcode, "Сканер штрихкода") }
         IconButton(onClick = onLabel, Modifier.size(48.dp)) { Icon(GIcons.Camera, "Фото этикетки") }
     }

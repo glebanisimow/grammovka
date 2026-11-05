@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
         if (!BuildConfig.DEBUG) return
         val c = (application as GrammovkaApp).container
         intent?.getStringExtra("debug_input")?.let { c.debugInput.value = it }
+        intent?.getStringExtra("debug_voice")?.let { c.debugInput.value = "voice:$it" }
         intent?.getStringExtra("debug_barcode")?.let { c.debugCapture.value = "barcode:$it" }
         intent?.getStringExtra("debug_label")?.let { c.debugCapture.value = "label:$it" }
     }

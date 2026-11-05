@@ -266,7 +266,7 @@ class ReviewViewModel(
                 when (item) {
                     is ReviewItem.Matched -> {
                         // The user picked this food for their own words: remember them as a synonym.
-                        if (item.candidates.size > 1 || method == InputMethod.TEXT) foods.learnAlias(item.selected!!.id, item.fragment.name)
+                        if (item.candidates.size > 1 || method == InputMethod.TEXT || method == InputMethod.VOICE) foods.learnAlias(item.selected!!.id, item.fragment.name)
                         NewEntry(item.selected!!.id, item.selected!!.displayName, grams, item.selected!!.per100, method, meal = meal)
                     }
                     is ReviewItem.NewFood -> {

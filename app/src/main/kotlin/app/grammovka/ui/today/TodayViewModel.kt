@@ -101,7 +101,7 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
         if (d == LocalDate.now()) LocalTime.now().withSecond(0).withNano(0) else LocalTime.NOON
 
     /** Offline fast path. Returns a review request when something needs confirmation. */
-    fun submit(text: String, onReview: (ReviewRequest) -> Unit, onLogged: () -> Unit) {
+    fun submit(text: String, onReview: (ReviewRequest) -> Unit, method: InputMethod = InputMethod.TEXT, onLogged: () -> Unit) {
         if (text.isBlank() || busy.value) return
         busy.value = true
         viewModelScope.launch {
@@ -109,12 +109,12 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
                 val plan = c.quickLogPlanner.plan(text)
                 if (plan.canLogDirectly) {
                     val items = plan.items.map { it as app.grammovka.domain.log.PlanItem.Ready }
-                    val entries = items.map { NewEntry(it.food.id, it.food.displayName, it.grams, it.food.per100, InputMethod.TEXT, meal = plan.meal) }
+                    val entries = items.map { NewEntry(it.food.id, it.food.displayName, it.grams, it.food.per100, method, meal = plan.meal) }
                     val ids = c.logRepository.log(date.value, timeFor(date.value), entries)
                     c.logEvents.emit(LoggedEvent(ids, ids.size, entries.sumOf { app.grammovka.domain.model.Nutrition.forGrams(it.per100, it.grams).kcal }))
                     onLogged()
                 } else {
-                    onReview(ReviewRequest(date.value, InputMethod.TEXT, plan))
+                    onReview(ReviewRequest(date.value, method, plan))
                 }
             } finally {
                 busy.value = false

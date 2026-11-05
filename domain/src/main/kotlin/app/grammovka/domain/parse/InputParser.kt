@@ -33,6 +33,8 @@ object InputParser {
         QtyUnit.TSP to "ч\\.?\\s?л|чайн(?:ая|ые|ых)\\s+лож(?:ка|ки|ек)",
     )
 
+    internal val UNIT_PATTERN: String get() = UNIT
+
     private val UNIT = "(" + unitAlternatives.joinToString("|") { "(?:${it.second})" } + ")\\.?"
 
     /** «name 230», «name 230 г», «name 2шт.» — the quantity is not followed by `%`. */
