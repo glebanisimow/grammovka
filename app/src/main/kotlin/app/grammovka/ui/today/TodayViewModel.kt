@@ -6,6 +6,8 @@ import app.grammovka.data.db.LogEntryEntity
 import app.grammovka.data.db.UsedFoodRow
 import app.grammovka.data.repo.DayModel
 import app.grammovka.data.repo.NewEntry
+import app.grammovka.data.repo.TemplateView
+import app.grammovka.domain.model.Meal
 import app.grammovka.di.AppContainer
 import app.grammovka.domain.model.Amount
 import app.grammovka.domain.model.InputMethod
@@ -26,6 +28,11 @@ import java.time.LocalTime
 
 data class Chip(val foodId: Long, val name: String, val grams: Double)
 
+/** «Повторить вчерашний завтрак»: a meal the previous day had (marked) and this day does not yet. */
+data class RepeatMeal(val meal: Meal, val entries: List<LogEntryEntity>) {
+    val kcal: Double get() = entries.sumOf { it.kcal }
+}
+
 data class TodayUi(
     val date: LocalDate = LocalDate.now(),
     val entries: List<LogEntryEntity> = emptyList(),
@@ -35,6 +42,8 @@ data class TodayUi(
     val weightKg: Double? = null,
     val incomplete: Boolean = false,
     val chips: List<Chip> = emptyList(),
+    val repeats: List<RepeatMeal> = emptyList(),
+    val templates: List<TemplateView> = emptyList(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -42,15 +51,25 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
     val date = MutableStateFlow(LocalDate.now())
     val busy = MutableStateFlow(false)
 
+    private data class DayData(val entries: List<LogEntryEntity>, val kg: Double?, val incomplete: Boolean, val repeats: List<RepeatMeal>)
+
     private val dayData = date.flatMapLatest { d ->
-        combine(c.logRepository.observeDay(d), c.weightRepository.observe(d), c.logRepository.observeStatus(d)) { e, w, inc ->
-            Triple(e, w?.kg, inc)
+        combine(
+            c.logRepository.observeDay(d), c.weightRepository.observe(d), c.logRepository.observeStatus(d), c.logRepository.observeDay(d.minusDays(1)),
+        ) { e, w, inc, prev ->
+            val today = e.mapNotNull { it.meal }.toSet()
+            val repeats = prev.filter { it.meal != null }.groupBy { it.meal!! }
+                .filterKeys { it !in today }
+                .toSortedMap().map { (m, list) -> RepeatMeal(m, list) }
+            DayData(e, w?.kg, inc, repeats)
         }
     }
 
+    private val shortcuts = combine(c.foodRepository.observeUsed(), c.templateRepository.observe()) { used, t -> used to t }
+
     val ui: StateFlow<TodayUi> = combine(
-        date, dayData, c.modelHub.state, c.settingsStore.settings, c.foodRepository.observeUsed(),
-    ) { d, (entries, w, inc), model, settings, used ->
+        date, dayData, c.modelHub.state, c.settingsStore.settings, shortcuts,
+    ) { d, (entries, w, inc, repeats), model, settings, (used, templates) ->
         TodayUi(
             date = d,
             entries = entries,
@@ -60,6 +79,8 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
             weightKg = w,
             incomplete = inc,
             chips = chips(used),
+            repeats = repeats,
+            templates = templates,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodayUi())
 
@@ -109,6 +130,36 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
             val ids = c.logRepository.log(date.value, timeFor(date.value), listOf(NewEntry(f.id, name, chip.grams, per100, InputMethod.QUICK)))
             c.logEvents.emit(LoggedEvent(ids, 1, app.grammovka.domain.model.Nutrition.forGrams(per100, chip.grams).kcal))
         }
+    }
+
+    fun repeatMeal(r: RepeatMeal) {
+        viewModelScope.launch {
+            val ids = c.logRepository.copy(r.entries, date.value, timeFor(date.value))
+            c.logEvents.emit(LoggedEvent(ids, ids.size, r.kcal))
+        }
+    }
+
+    fun logTemplate(t: TemplateView) {
+        viewModelScope.launch {
+            val entries = c.templateRepository.entries(t.id)
+            if (entries.isEmpty()) return@launch
+            val ids = c.logRepository.log(date.value, timeFor(date.value), entries)
+            c.logEvents.emit(LoggedEvent(ids, ids.size, entries.sumOf { app.grammovka.domain.model.Nutrition.forGrams(it.per100, it.grams).kcal }))
+        }
+    }
+
+    fun saveTemplate(name: String, entries: List<LogEntryEntity>) {
+        val items = entries.filter { it.foodId != null }.map { it.foodId!! to it.grams }
+        if (name.isBlank() || items.isEmpty()) return
+        viewModelScope.launch { c.templateRepository.create(name, items) }
+    }
+
+    fun deleteTemplate(t: TemplateView) {
+        viewModelScope.launch { c.templateRepository.delete(t.id) }
+    }
+
+    fun setMeal(e: LogEntryEntity, meal: Meal?) {
+        viewModelScope.launch { c.logRepository.setMeal(e, meal) }
     }
 
     fun undo(ids: List<Long>) {

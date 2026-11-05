@@ -52,6 +52,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.grammovka.data.db.LogEntryEntity
+import app.grammovka.data.repo.TemplateView
+import app.grammovka.domain.model.Meal
+import app.grammovka.ui.common.MealChips
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
+import androidx.compose.runtime.mutableStateMapOf
 import app.grammovka.di.AppContainer
 import app.grammovka.domain.engine.Warning
 import app.grammovka.domain.model.Fmt
@@ -83,6 +90,7 @@ fun TodayScreen(
     val snackbar = remember { SnackbarHostState() }
     var weightDialog by remember { mutableStateOf(false) }
     var editEntry by remember { mutableStateOf<LogEntryEntity?>(null) }
+    var templatesDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         container.debugInput.collect { text ->
@@ -106,7 +114,9 @@ fun TodayScreen(
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                 item { DayHeader(ui.date, vm::shiftDay) }
                 item { Budget(ui, onOpenProfile, onWeight = { weightDialog = true }) }
-                if (ui.chips.isNotEmpty()) item { Chips(ui.chips, vm::repeat) }
+                if (ui.chips.isNotEmpty() || ui.repeats.isNotEmpty() || ui.templates.isNotEmpty() || ui.entries.isNotEmpty()) {
+                    item { Chips(ui, vm, onTemplates = { templatesDialog = true }) }
+                }
                 item {
                     Row(
                         Modifier.fillMaxWidth().clickable { vm.setIncomplete(!ui.incomplete) }.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -132,7 +142,22 @@ fun TodayScreen(
     }
 
     if (weightDialog) WeightDialog(ui.weightKg, onDismiss = { weightDialog = false }) { vm.setWeight(it); weightDialog = false }
-    editEntry?.let { e -> EntryDialog(e, onDismiss = { editEntry = null }, onSave = { vm.updateGrams(e, it); editEntry = null }, onDelete = { vm.deleteEntry(e); editEntry = null }) }
+    editEntry?.let { e ->
+        EntryDialog(
+            e, onDismiss = { editEntry = null },
+            onSave = { g, meal ->
+                if (g != e.grams) vm.updateGrams(e.copy(meal = meal), g) else if (meal != e.meal) vm.setMeal(e, meal)
+                editEntry = null
+            },
+            onDelete = { vm.deleteEntry(e); editEntry = null },
+        )
+    }
+    if (templatesDialog) {
+        TemplatesDialog(
+            ui.entries, ui.templates, onDismiss = { templatesDialog = false },
+            onSave = { name, list -> vm.saveTemplate(name, list) }, onDelete = vm::deleteTemplate,
+        )
+    }
 }
 
 @Composable
@@ -230,12 +255,101 @@ private fun Notice(text: String, action: String, onClick: () -> Unit) {
     }
 }
 
+/** One-tap shortcuts: repeat yesterday's meals, templates, recent foods; the last chip manages templates. */
 @Composable
-private fun Chips(chips: List<Chip>, onTap: (Chip) -> Unit) {
+private fun Chips(ui: TodayUi, vm: TodayViewModel, onTemplates: () -> Unit) {
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(chips, key = { it.foodId }) { c ->
-            SuggestionChip(onClick = { onTap(c) }, label = { Text("${c.name} · ${Fmt.kcal(c.grams)} г") }, shape = MaterialTheme.shapes.small)
+        items(ui.repeats, key = { "r" + it.meal.name }) { r ->
+            SuggestionChip(
+                onClick = { vm.repeatMeal(r) },
+                icon = { Icon(GIcons.Repeat, null, Modifier.size(16.dp)) },
+                label = { Text("${if (ui.date == LocalDate.now()) "вчерашний" else "прошлый"} ${r.meal.ru} · ${Fmt.kcal(r.kcal)} ккал") },
+                shape = MaterialTheme.shapes.small,
+            )
         }
+        items(ui.templates, key = { "t" + it.id }) { t ->
+            SuggestionChip(
+                onClick = { vm.logTemplate(t) },
+                icon = { Icon(GIcons.Bookmark, null, Modifier.size(16.dp)) },
+                label = { Text("${t.name} · ${Fmt.kcal(t.kcal)} ккал") },
+                shape = MaterialTheme.shapes.small,
+            )
+        }
+        items(ui.chips, key = { "f" + it.foodId }) { c ->
+            SuggestionChip(onClick = { vm.repeat(c) }, label = { Text("${c.name} · ${Fmt.kcal(c.grams)} г") }, shape = MaterialTheme.shapes.small)
+        }
+        item(key = "manage") {
+            SuggestionChip(
+                onClick = onTemplates,
+                icon = { Icon(GIcons.Plus, null, Modifier.size(16.dp)) },
+                label = { Text("шаблон") },
+                shape = MaterialTheme.shapes.small,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TemplatesDialog(
+    entries: List<LogEntryEntity>,
+    templates: List<TemplateView>,
+    onDismiss: () -> Unit,
+    onSave: (String, List<LogEntryEntity>) -> Unit,
+    onDelete: (TemplateView) -> Unit,
+) {
+    val usable = entries.filter { it.foodId != null }
+    var name by remember { mutableStateOf("") }
+    val checked = remember { mutableStateMapOf<Long, Boolean>().apply { usable.forEach { put(it.id, true) } } }
+    var confirm by remember { mutableStateOf<TemplateView?>(null) }
+    val chosen = usable.filter { checked[it.id] == true }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Шаблоны") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (usable.isEmpty()) {
+                    Text("Запишите еду за день, и её можно будет сохранить как шаблон.", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    Text("Новый шаблон из записей дня", style = MaterialTheme.typography.titleSmall)
+                    usable.forEach { e ->
+                        Row(Modifier.fillMaxWidth().clickable { checked[e.id] = checked[e.id] != true }, verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = checked[e.id] == true, onCheckedChange = { checked[e.id] = it })
+                            Text("${e.foodName} · ${Fmt.kcal(e.grams)} г", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                    OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Название, например «Завтрак будний»") })
+                    TextButton(
+                        onClick = { onSave(name, chosen); name = "" },
+                        enabled = name.isNotBlank() && chosen.isNotEmpty(),
+                    ) { Text("Сохранить шаблон · ${chosen.size}") }
+                }
+                if (templates.isNotEmpty()) {
+                    Text("Сохранённые", style = MaterialTheme.typography.titleSmall)
+                    templates.forEach { t ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(t.name, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    t.lines.joinToString(", ") { "${it.name} ${Fmt.kcal(it.grams)} г" },
+                                    style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+                                )
+                            }
+                            IconButton(onClick = { confirm = t }) { Icon(GIcons.Trash, "Удалить шаблон", Modifier.size(18.dp)) }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } },
+    )
+    confirm?.let { t ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text("Удалить «${t.name}»?") },
+            text = { Text("Записи, сделанные по шаблону, останутся.") },
+            confirmButton = { TextButton(onClick = { onDelete(t); confirm = null }) { Text("Удалить", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Отмена") } },
+        )
     }
 }
 
@@ -248,7 +362,7 @@ private fun EntryRow(e: LogEntryEntity, onClick: () -> Unit) {
         Text(e.time.toString().take(5), style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted, modifier = Modifier.width(48.dp))
         Column(Modifier.weight(1f)) {
             Text(e.foodName, style = MaterialTheme.typography.bodyLarge)
-            Text("${Fmt.kcal(e.grams)} г · Б ${Fmt.grams(e.protein)}", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
+            Text(listOfNotNull(e.meal?.ru, "${Fmt.kcal(e.grams)} г", "Б ${Fmt.grams(e.protein)}").joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
         }
         Text(Fmt.kcal(e.kcal), style = MaterialTheme.typography.titleMedium)
     }
@@ -296,8 +410,9 @@ private fun WeightDialog(current: Double?, onDismiss: () -> Unit, onSave: (Doubl
 }
 
 @Composable
-private fun EntryDialog(e: LogEntryEntity, onDismiss: () -> Unit, onSave: (Double) -> Unit, onDelete: () -> Unit) {
+private fun EntryDialog(e: LogEntryEntity, onDismiss: () -> Unit, onSave: (Double, Meal?) -> Unit, onDelete: () -> Unit) {
     var v by remember { mutableStateOf(e.grams.input()) }
+    var meal by remember { mutableStateOf(e.meal) }
     val g = v.toDecimal()
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -306,9 +421,10 @@ private fun EntryDialog(e: LogEntryEntity, onDismiss: () -> Unit, onSave: (Doubl
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 NumberField(v, { v = it }, "Вес", suffix = "г", imeAction = ImeAction.Done)
                 Text("Калории пересчитаются из сохранённых в записи цифр.", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
+                MealChips(meal, { meal = it })
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(g!!) }, enabled = g != null && g > 0) { Text("Сохранить") } },
+        confirmButton = { TextButton(onClick = { onSave(g!!, meal) }, enabled = g != null && g > 0) { Text("Сохранить") } },
         dismissButton = {
             Row {
                 TextButton(onClick = onDelete) { Text("Удалить", color = MaterialTheme.colorScheme.error) }

@@ -49,6 +49,19 @@ class LogRepository(
         ids
     }
 
+    /**
+     * Copies entries (e.g. yesterday's breakfast) to [date] as they were: same grams and nutrient snapshot,
+     * same meal. Returns new ids for Undo.
+     */
+    suspend fun copy(entries: List<LogEntryEntity>, date: LocalDate, time: LocalTime): List<Long> = db.withTransaction {
+        val now = clock()
+        val ids = logDao.insertAll(entries.map { it.copy(id = 0, date = date, time = time, inputMethod = InputMethod.QUICK) })
+        entries.mapNotNull { it.foodId }.forEach { foodDao.bumpUsage(it, now) }
+        ids
+    }
+
+    suspend fun setMeal(entry: LogEntryEntity, meal: Meal?) = logDao.update(entry.copy(meal = meal))
+
     /** Undo / delete: removes entries and rolls back usage counts. */
     suspend fun delete(ids: List<Long>) = db.withTransaction {
         val entries = logDao.byIds(ids)
