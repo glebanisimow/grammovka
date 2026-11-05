@@ -8,6 +8,7 @@ object Prompts {
     const val PARSE_VERSION = "PARSE_V1"
     const val RESOLVE_VERSION = "RESOLVE_V1"
     const val LABEL_VERSION = "LABEL_V1"
+    const val PHOTO_VERSION = "PHOTO_V1"
 
     val PROMPT_PARSE_V1 = """
         You map fragments of a Russian-language food diary to foods in the user's catalog.
@@ -48,5 +49,26 @@ object Prompts {
         - protein, fat, carbs (total carbohydrates, not sugars), fiber: grams as printed, null if absent.
         - name and brand from the package if visible; packageG is the net weight if printed; ean if the barcode digits are printed.
         - notes: anything unclear, in Russian, short. Never compute or round numbers.
+    """.trimIndent()
+
+    val PROMPT_PHOTO_V1 = """
+        You identify food from 1–4 photos taken by the user (Poland): the food itself, its cross-section, its package or
+        label without a nutrition table, or a plate with several components. An optional note from the user may follow.
+        You do NOT give nutrition numbers: another step looks them up in databases. Your job is to say precisely what it is.
+        Output one item per distinct food (a plate → one item per component; one product shot from several angles → one item).
+        - nameRu: a short natural Russian name for a catalog, specific: «Булочка ржаная с семечками», «Фарш свиной».
+        - queryEn: an English search query for USDA FoodData Central describing the closest generic food, with the details
+          that change calories: e.g. "rye bread with sunflower seeds", "pork, ground, 80% lean / 20% fat, raw".
+        - details: in Russian, what you see that matters for calories and how sure you are: grain, filling, visible fat,
+          fat % or ingredients read from the label, cooked or raw. One or two short sentences.
+        - packaged: true for a packaged product (brand, label, barcode); false for loose or home food.
+        - brand: if printed, else null. packageG: net weight printed on the package, else null.
+        - grams: your estimate of the weight eaten or shown, in grams, if you can judge it (label weight, typical size of
+          a bun, plate portion); null if you cannot. gramsBasis: "label" if read from the package, "visual" if estimated
+          from the photo, "unknown" if grams is null.
+        - table: only if a per-100 g (or per-100 ml) nutrition table is clearly printed, copy kcal, protein, fat, carbs,
+          fiber exactly as printed (null where absent); otherwise null. Never compute or convert numbers.
+        - notes: anything the user should check, in Russian, short; null if nothing.
+        If the photos show no food at all, return an empty items list and say so in notes.
     """.trimIndent()
 }

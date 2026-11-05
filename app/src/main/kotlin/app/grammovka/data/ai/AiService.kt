@@ -46,6 +46,11 @@ data class ParsedFragment(val fragment: String, val foodId: Long?, val grams: Do
 /** RESOLVE output: an editable draft plus a human note about where the numbers came from. */
 data class Proposal(val request: String, val draft: FoodDraft, val note: String, val portionG: Double?)
 
+/** One food recognised from photos, already resolved to an editable draft; [grams] is a visual or label estimate. */
+data class PhotoFood(val draft: FoodDraft, val note: String, val grams: Double?)
+
+data class PhotoResult(val foods: List<PhotoFood>, val notes: String?)
+
 sealed interface LabelResult {
     data class Found(val draft: FoodDraft, val note: String?, val packageG: Double?) : LabelResult
     data class NotFound(val note: String?) : LabelResult
@@ -338,6 +343,60 @@ class AiService(
             notes?.let { add(it) }
         }.joinToString(". ")
         return LabelResult.Found(draft, note, o.d("packageG"))
+    }
+
+    // ------------------------------------------------------------------ PHOTO
+
+    /**
+     * Food without a nutrition table (a bun, minced meat in plain packaging, a plate): vision identifies what it is
+     * and estimates grams (MEAL_PHOTO), then the existing RESOLVE loop finds per-100 g values in USDA / OFF / web,
+     * falling back to a marked Claude estimate. A table, if one is printed after all, is taken as LABEL.
+     * Several images go in one user turn (https://platform.claude.com/docs/en/build-with-claude/vision).
+     * [jpegs] are already downscaled to ~1568 px. Invariant 2: everything goes to the confirm screen.
+     */
+    suspend fun photo(jpegs: List<ByteArray>, hint: String?, barcode: String?): PhotoResult {
+        require(jpegs.isNotEmpty())
+        val num = { nullable("number") }
+        val schema = obj(
+            "items" to arr(
+                obj(
+                    "nameRu" to str(), "queryEn" to str(), "details" to str(),
+                    "packaged" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                    "brand" to nullable("string"), "packageG" to num(),
+                    "grams" to num(), "gramsBasis" to enumOf("label", "visual", "unknown"),
+                    "tableKcal" to num(), "tableProtein" to num(), "tableFat" to num(), "tableCarbs" to num(), "tableFiber" to num(),
+                ),
+            ),
+            "notes" to nullable("string"),
+        )
+        val body = buildJsonObject {
+            put("max_tokens", 2000)
+            put("system", systemBlocks(Prompts.PROMPT_PHOTO_V1))
+            putJsonArray("messages") {
+                addJsonObject {
+                    put("role", "user")
+                    putJsonArray("content") {
+                        jpegs.forEachIndexed { i, jpeg ->
+                            addJsonObject { put("type", "text"); put("text", "Photo ${i + 1}:") }
+                            addJsonObject {
+                                put("type", "image")
+                                putJsonObject("source") {
+                                    put("type", "base64"); put("media_type", "image/jpeg")
+                                    put("data", Base64.getEncoder().encodeToString(jpeg))
+                                }
+                            }
+                        }
+                        val note = hint?.trim()?.takeIf(String::isNotEmpty)
+                        addJsonObject { put("type", "text"); put("text", if (note != null) "User note: $note" else "No user note.") }
+                    }
+                }
+            }
+            putJsonObject("output_config") { putJsonObject("format") { put("type", "json_schema"); put("schema", schema) } }
+        }
+        val o = json.parseToJsonElement(call(AiPurpose.MEAL_PHOTO, Prompts.PHOTO_VERSION, body, OTHER_TIMEOUT_MS).text).jsonObject
+        val requests = PhotoMapping.requests(o)
+        val resolved = if (requests.isEmpty()) emptyList() else resolve(requests)
+        return PhotoMapping.combine(o, resolved, barcode)
     }
 
     // ------------------------------------------------------------------ plumbing

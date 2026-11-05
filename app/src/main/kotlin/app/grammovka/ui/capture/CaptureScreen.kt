@@ -27,7 +27,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -78,7 +81,7 @@ import java.time.LocalDate
 import java.util.concurrent.Executors
 import kotlin.math.max
 
-enum class CaptureMode { BARCODE, LABEL }
+enum class CaptureMode(val ru: String) { BARCODE("Штрихкод"), LABEL("Этикетка"), PHOTO("Без таблицы") }
 
 private sealed interface CaptureState {
     data object Scanning : CaptureState
@@ -107,6 +110,9 @@ fun CaptureScreen(
     var mode by remember { mutableStateOf(initialMode) }
     var state by remember { mutableStateOf<CaptureState>(CaptureState.Scanning) }
     var pendingBarcode by remember { mutableStateOf<String?>(null) }
+    val shots = remember { mutableStateListOf<ByteArray>() }
+    var hint by remember { mutableStateOf("") }
+    var lastLabel by remember { mutableStateOf<ByteArray?>(null) }
     val imageCapture = remember { ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build() }
 
     LaunchedEffect(Unit) { if (!granted) permission.launch(Manifest.permission.CAMERA) }
@@ -149,7 +155,33 @@ fun CaptureScreen(
         }
     }
 
+    fun estimate() {
+        val photos = shots.toList()
+        if (photos.isEmpty()) return
+        state = CaptureState.Busy("Claude смотрит фото и ищет продукт в базах…")
+        scope.launch {
+            try {
+                val r = container.aiService.photo(photos, hint, pendingBarcode)
+                if (r.foods.isEmpty()) {
+                    state = CaptureState.Error((r.notes ?: "На фото не видно еды.") + " Снимите ближе или введите вручную.")
+                } else {
+                    val notes = r.foods.mapIndexed { i, f -> if (i == 0 && r.notes != null) "${f.note} ${r.notes}" else f.note }
+                    onReview(
+                        ReviewRequest(
+                            date, InputMethod.PHOTO,
+                            drafts = r.foods.map { it.draft }.zip(notes),
+                            draftGrams = r.foods.map { it.grams },
+                        ),
+                    )
+                }
+            } catch (e: ClaudeException) {
+                state = CaptureState.Error(e.userMessage())
+            }
+        }
+    }
+
     fun labelFromJpeg(jpeg: ByteArray) {
+        lastLabel = jpeg
         state = CaptureState.Busy("Claude читает этикетку…")
         scope.launch {
             try {
@@ -171,7 +203,13 @@ fun CaptureScreen(
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageCapturedCallback() {
                 override fun onCaptureSuccess(image: ImageProxy) {
-                    labelFromJpeg(image.use { toScaledJpeg(it) })
+                    val jpeg = image.use { toScaledJpeg(it) }
+                    if (mode == CaptureMode.PHOTO) {
+                        if (shots.size < MAX_PHOTOS) shots += jpeg
+                        state = CaptureState.Scanning
+                    } else {
+                        labelFromJpeg(jpeg)
+                    }
                 }
 
                 override fun onError(exception: ImageCaptureException) {
@@ -193,6 +231,15 @@ fun CaptureScreen(
                     val f = java.io.File(context.getExternalFilesDir(null), cmd.removePrefix("label:"))
                     labelFromJpeg(f.readBytes())
                 }
+                // «photo:a.jpg,b.jpg|hint» — the photo estimate with files from getExternalFilesDir.
+                cmd.startsWith("photo:") -> {
+                    val (files, note) = cmd.removePrefix("photo:").split("|", limit = 2).let { it[0] to it.getOrElse(1) { "" } }
+                    mode = CaptureMode.PHOTO
+                    shots.clear()
+                    files.split(",").forEach { shots += java.io.File(context.getExternalFilesDir(null), it.trim()).readBytes() }
+                    hint = note
+                    estimate()
+                }
             }
         }
     }
@@ -202,6 +249,17 @@ fun CaptureScreen(
         onReview(ReviewRequest(date, InputMethod.BARCODE, drafts = listOf(draft to "Введите данные с упаковки.")))
     }
 
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS)) { uris ->
+        scope.launch {
+            val room = MAX_PHOTOS - shots.size
+            val loaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                uris.take(room).mapNotNull { runCatching { uriToScaledJpeg(context, it) }.getOrNull() }
+            }
+            shots += loaded
+            if (loaded.size < uris.take(room).size) state = CaptureState.Error("Часть фото не открылась. Выберите другие.")
+        }
+    }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (granted) {
             CameraPreview(mode, imageCapture, onBarcode = ::onBarcode, onError = { state = CaptureState.Error(it) })
@@ -209,7 +267,11 @@ fun CaptureScreen(
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(GIcons.Back, "Назад", tint = Color.White) }
             Text(
-                if (mode == CaptureMode.BARCODE) "Наведите на штрихкод" else "Снимите таблицу пищевой ценности",
+                when (mode) {
+                    CaptureMode.BARCODE -> "Наведите на штрихкод"
+                    CaptureMode.LABEL -> "Снимите таблицу пищевой ценности"
+                    CaptureMode.PHOTO -> "Снимите продукт"
+                },
                 color = Color.White, style = MaterialTheme.typography.titleMedium,
             )
         }
@@ -232,10 +294,20 @@ fun CaptureScreen(
                     } else if (mode == CaptureMode.LABEL) {
                         Button(onClick = ::takeLabel, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) { Text("Снять этикетку") }
                     }
-                    OutlinedButton(
-                        onClick = { mode = if (mode == CaptureMode.BARCODE) CaptureMode.LABEL else CaptureMode.BARCODE },
-                        modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small,
-                    ) { Text(if (mode == CaptureMode.BARCODE) "Фото этикетки" else "Сканер штрихкода") }
+                    if (mode == CaptureMode.PHOTO) {
+                        PhotoPanel(
+                            shots, hint, { hint = it },
+                            onShoot = ::takeLabel,
+                            onGallery = { gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            onRemove = { shots.removeAt(it) },
+                            onEstimate = ::estimate,
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CaptureMode.entries.forEach { m ->
+                            FilterChip(selected = mode == m, onClick = { mode = m }, label = { Text(m.ru) })
+                        }
+                    }
                 }
                 is CaptureState.Busy -> Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -246,11 +318,23 @@ fun CaptureScreen(
                     Button(onClick = { pendingBarcode = s.code; mode = CaptureMode.LABEL; state = CaptureState.Scanning }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) {
                         Text("Сфотографировать таблицу")
                     }
+                    OutlinedButton(
+                        onClick = { pendingBarcode = s.code; mode = CaptureMode.PHOTO; state = CaptureState.Scanning },
+                        modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small,
+                    ) { Text("Таблицы нет — оценить по фото") }
                     OutlinedButton(onClick = { manual(s.code) }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) { Text("Ввести вручную") }
                 }
                 is CaptureState.Error -> {
                     Text(s.text, color = MaterialTheme.colorScheme.error)
                     Button(onClick = { state = CaptureState.Scanning }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) { Text("Повторить") }
+                    val label = lastLabel
+                    if (mode == CaptureMode.LABEL && label != null) {
+                        // The label had no readable table: reuse that shot as the first photo of an estimate.
+                        OutlinedButton(
+                            onClick = { shots.clear(); shots += label; mode = CaptureMode.PHOTO; state = CaptureState.Scanning },
+                            modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small,
+                        ) { Text("Таблицы нет — оценить по фото") }
+                    }
                     OutlinedButton(onClick = { manual(pendingBarcode) }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) { Text("Ввести вручную") }
                 }
             }

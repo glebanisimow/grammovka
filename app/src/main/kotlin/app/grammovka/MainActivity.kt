@@ -28,6 +28,7 @@ class MainActivity : ComponentActivity() {
         intent?.getStringExtra("debug_voice")?.let { c.debugInput.value = "voice:$it" }
         intent?.getStringExtra("debug_barcode")?.let { c.debugCapture.value = "barcode:$it" }
         intent?.getStringExtra("debug_label")?.let { c.debugCapture.value = "label:$it" }
+        intent?.getStringExtra("debug_photo")?.let { c.debugCapture.value = "photo:$it" }
     }
 
     private fun handleWidget(intent: Intent?) {

@@ -70,6 +70,8 @@ data class ReviewRequest(
     val plan: LogPlan? = null,
     val drafts: List<Pair<FoodDraft, String?>> = emptyList(),
     val grams: Double? = null,
+    /** Per-draft grams (photo estimate); falls back to [grams]. */
+    val draftGrams: List<Double?> = emptyList(),
     /** Deferred items this request came from; removed from the queue once logged. */
     val pendingIds: List<Long> = emptyList(),
     val pendingTime: LocalTime? = null,
@@ -132,8 +134,9 @@ class ReviewViewModel(
 
     init {
         request?.plan?.items?.forEach { items += fromPlan(it) }
-        request?.drafts?.forEach { (d, note) ->
-            items += ReviewItem.NewFood(Fragment(d.name, d.name), FoodFormState(d), note).also { it.grams = request.grams?.input().orEmpty() }
+        request?.drafts?.forEachIndexed { i, (d, note) ->
+            val g = request.draftGrams.getOrNull(i) ?: request.grams
+            items += ReviewItem.NewFood(Fragment(d.name, d.name), FoodFormState(d), note).also { it.grams = g?.input().orEmpty() }
         }
         viewModelScope.launch {
             hasKey = ai?.hasKey() == true
