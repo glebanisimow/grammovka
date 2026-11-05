@@ -63,4 +63,7 @@ object GIcons {
     val Pulse = icon("pulse", "M3 12h4l2-5 4 10 2-5h6")
     val Repeat = icon("repeat", "M17 3l3 3-3 3M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3M20 13v2a3 3 0 0 1-3 3H4")
     val Bookmark = icon("bookmark", "M6 3h12v18l-6-4-6 4z")
+    /** Overflow: three dots (square caps turn zero-length strokes into dots). */
+    val More = icon("more", "M5 12h.5M12 12h.5M19 12h.5")
+    val Down = icon("down", "M5 9l7 7 7-7")
 }

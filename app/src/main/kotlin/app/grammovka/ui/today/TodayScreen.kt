@@ -68,6 +68,7 @@ import app.grammovka.domain.parse.VoiceText
 import kotlinx.coroutines.launch
 import app.grammovka.data.repo.TemplateView
 import app.grammovka.domain.model.Meal
+import app.grammovka.domain.log.MealBlock
 import app.grammovka.ui.common.MealChips
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -94,8 +95,8 @@ private val dayFmt = DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.forLangu
 fun TodayScreen(
     container: AppContainer,
     onReview: (ReviewRequest) -> Unit,
-    onScan: (LocalDate) -> Unit,
-    onLabel: (LocalDate) -> Unit,
+    onScan: (LocalDate, Meal) -> Unit,
+    onLabel: (LocalDate, Meal) -> Unit,
     onOpenProfile: () -> Unit,
     onOpenPending: () -> Unit,
 ) {
@@ -107,6 +108,9 @@ fun TodayScreen(
     var weightDialog by remember { mutableStateOf(false) }
     var editEntry by remember { mutableStateOf<LogEntryEntity?>(null) }
     var templatesDialog by remember { mutableStateOf(false) }
+    var cardMenu by remember { mutableStateOf<MealBlock<LogEntryEntity>?>(null) }
+    val collapsed = remember { mutableStateMapOf<String, Boolean>() }
+    val focusInput = { container.widgetAction.value = app.grammovka.widget.GrammovkaWidget.ACTION_ADD }
 
     LaunchedEffect(Unit) {
         container.debugInput.collect { text ->
@@ -127,6 +131,13 @@ fun TodayScreen(
                 "Записано: ${e.count} · ${Fmt.kcal(e.kcal)} ккал", actionLabel = "Отменить", duration = SnackbarDuration.Short,
             )
             if (r == SnackbarResult.ActionPerformed) vm.undo(e.ids)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        vm.deletions.collect { b ->
+            val r = snackbar.showSnackbar("Удалено: ${b.meal.ru}", actionLabel = "Отменить", duration = SnackbarDuration.Short)
+            if (r == SnackbarResult.ActionPerformed) vm.restore(b)
         }
     }
 
@@ -155,21 +166,45 @@ fun TodayScreen(
                         Switch(checked = ui.incomplete, onCheckedChange = vm::setIncomplete)
                     }
                 }
-                if (ui.entries.isEmpty()) {
+                if (ui.entries.isEmpty() && ui.openCards.isEmpty()) {
                     item {
                         Text(
-                            "Записей нет. Введите, что съели, в строке внизу: «творог 5% 150, кофе с молоком».",
+                            "Записей нет. Добавьте приём пищи или просто введите внизу, что съели: «творог 5% 150, кофе с молоком».",
                             Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
                         )
                     }
                 }
-                items(ui.entries, key = { it.id }) { e -> EntryRow(e) { editEntry = e } }
+                // The snack card that a new snack would join: the last one, if no main meal started after it.
+                val lastMainStart = ui.blocks.filter { it.meal != Meal.SNACK }.maxOfOrNull { it.start }
+                val liveSnack = ui.blocks.lastOrNull { it.meal == Meal.SNACK }?.takeIf { s -> lastMainStart == null || s.start.isAfter(lastMainStart) }
+                val cards: List<Pair<java.time.LocalTime, Any>> = (ui.blocks.map { it.start to it } + ui.openCards.map { it.at to it }).sortedBy { it.first }
+                items(cards, key = { (_, c) -> if (c is OpenCard) "o" + c.meal else (c as MealBlock<*>).let { "b" + it.meal + (it.items.first() as LogEntryEntity).id } }) { (_, c) ->
+                    if (c is OpenCard) {
+                        EmptyMealCard(c, target = ui.target == c.meal, onAdd = { vm.pickTarget(c.meal); focusInput() }, onClose = { vm.closeCard(c.meal) })
+                    } else {
+                        @Suppress("UNCHECKED_CAST") val b = c as MealBlock<LogEntryEntity>
+                        val key = "b" + b.meal + b.items.first().id
+                        val isTarget = ui.target == b.meal && (b.meal != Meal.SNACK || b === liveSnack) && ui.openCards.none { it.meal == b.meal }
+                        MealCard(
+                            b, isTarget, collapsed[key] == true,
+                            onToggle = { collapsed[key] = collapsed[key] != true },
+                            onAdd = {
+                                // Adding to an earlier snack card: entries go in at its time so they land in it.
+                                vm.pickTarget(b.meal); focusInput()
+                            },
+                            onMenu = { cardMenu = b },
+                            onEntry = { editEntry = it },
+                        )
+                    }
+                }
+                item { AddMealButton { m -> vm.openCard(m); focusInput() } }
             }
+            TargetBar(ui.target, ui.targetPicked, vm::pickTarget)
             InputBar(
                 busy,
                 focusSignal = container.widgetAction,
                 onSubmit = { text, method, clear -> vm.submit(text, { r -> clear(); onReview(r) }, method) { clear() } },
-                onScan = { onScan(ui.date) }, onLabel = { onLabel(ui.date) },
+                onScan = { onScan(ui.date, ui.target) }, onLabel = { onLabel(ui.date, ui.target) },
                 onMessage = { msg -> scope.launch { snackbar.showSnackbar(msg, duration = SnackbarDuration.Short) } },
             )
         }
@@ -181,10 +216,19 @@ fun TodayScreen(
         EntryDialog(
             e, onDismiss = { editEntry = null },
             onSave = { g, meal ->
-                if (g != e.grams) vm.updateGrams(e.copy(meal = meal), g) else if (meal != e.meal) vm.setMeal(e, meal)
+                if (g != e.grams) vm.updateGrams(e.copy(meal = meal), g) else if (meal != (e.meal ?: Meal.SNACK)) vm.setMeal(e, meal)
                 editEntry = null
             },
             onDelete = { vm.deleteEntry(e); editEntry = null },
+        )
+    }
+    cardMenu?.let { b ->
+        MealCardDialog(
+            b, onDismiss = { cardMenu = null },
+            onRetype = { vm.retypeCard(b, it) },
+            onShift = { vm.shiftCard(b, it) },
+            onTemplate = { name -> vm.saveCardTemplate(name, b); scope.launch { snackbar.showSnackbar("Шаблон «$name» сохранён", duration = SnackbarDuration.Short) } },
+            onDelete = { vm.deleteCard(b) },
         )
     }
     if (templatesDialog) {
@@ -412,21 +456,6 @@ private fun TemplatesDialog(
 }
 
 @Composable
-private fun EntryRow(e: LogEntryEntity, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(e.time.toString().take(5), style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted, modifier = Modifier.width(48.dp))
-        Column(Modifier.weight(1f)) {
-            Text(e.foodName, style = MaterialTheme.typography.bodyLarge)
-            Text(listOfNotNull(e.meal?.ru, "${Fmt.kcal(e.grams)} г", "Б ${Fmt.grams(e.protein)}").joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
-        }
-        Text(Fmt.kcal(e.kcal), style = MaterialTheme.typography.titleMedium)
-    }
-}
-
-@Composable
 private fun InputBar(
     busy: Boolean,
     focusSignal: kotlinx.coroutines.flow.MutableStateFlow<String?>,
@@ -515,7 +544,8 @@ private fun WeightDialog(current: Double?, onDismiss: () -> Unit, onSave: (Doubl
 @Composable
 private fun EntryDialog(e: LogEntryEntity, onDismiss: () -> Unit, onSave: (Double, Meal?) -> Unit, onDelete: () -> Unit) {
     var v by remember { mutableStateOf(e.grams.input()) }
-    var meal by remember { mutableStateOf(e.meal) }
+    // Unmarked entries are shown as snacks, so the dialog says so too.
+    var meal by remember { mutableStateOf(e.meal ?: Meal.SNACK) }
     val g = v.toDecimal()
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -524,7 +554,7 @@ private fun EntryDialog(e: LogEntryEntity, onDismiss: () -> Unit, onSave: (Doubl
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 NumberField(v, { v = it }, "Вес", suffix = "г", imeAction = ImeAction.Done)
                 Text("Калории пересчитаются из сохранённых в записи цифр.", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
-                MealChips(meal, { meal = it })
+                MealChips(meal, { meal = it ?: Meal.SNACK })
             }
         },
         confirmButton = { TextButton(onClick = { onSave(g!!, meal) }, enabled = g != null && g > 0) { Text("Сохранить") } },

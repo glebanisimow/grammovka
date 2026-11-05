@@ -55,7 +55,7 @@ import java.time.LocalDate
 @Serializable object ReviewRoute
 @Serializable data class FoodEditRoute(val id: Long = -1, val barcode: String = "")
 @Serializable data class RecipeEditRoute(val id: Long = -1)
-@Serializable data class CaptureRoute(val date: String, val mode: String)
+@Serializable data class CaptureRoute(val date: String, val mode: String, val meal: String = "")
 
 private data class Tab(val route: Any, val label: String, val icon: ImageVector)
 
@@ -139,8 +139,8 @@ fun AppRoot(container: AppContainer) {
                 TodayScreen(
                     container,
                     onReview = { container.reviewInbox.pending = it; nav.navigate(ReviewRoute) },
-                    onScan = { nav.navigate(CaptureRoute(it.toString(), CaptureMode.BARCODE.name)) },
-                    onLabel = { nav.navigate(CaptureRoute(it.toString(), CaptureMode.LABEL.name)) },
+                    onScan = { d, m -> nav.navigate(CaptureRoute(d.toString(), CaptureMode.BARCODE.name, m.name)) },
+                    onLabel = { d, m -> nav.navigate(CaptureRoute(d.toString(), CaptureMode.LABEL.name, m.name)) },
                     onOpenProfile = { nav.navigate(ProfileRoute) },
                     onOpenPending = openPending,
                 )
@@ -178,7 +178,8 @@ fun AppRoot(container: AppContainer) {
                 CaptureScreen(
                     container, LocalDate.parse(r.date), CaptureMode.valueOf(r.mode),
                     onReview = { req ->
-                        container.reviewInbox.pending = req
+                        val meal = r.meal.takeIf { it.isNotEmpty() }?.let { app.grammovka.domain.model.Meal.valueOf(it) }
+                        container.reviewInbox.pending = if (req.meal == null) req.copy(meal = meal) else req
                         nav.navigate(ReviewRoute) { popUpTo<CaptureRoute> { inclusive = true } }
                     },
                     onBack = { nav.popBackStack() },

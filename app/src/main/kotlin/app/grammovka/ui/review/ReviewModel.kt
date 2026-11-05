@@ -14,6 +14,7 @@ import app.grammovka.domain.log.PlanItem
 import app.grammovka.domain.model.CatalogFood
 import app.grammovka.domain.model.FoodDraft
 import app.grammovka.domain.model.InputMethod
+import app.grammovka.domain.model.Meal
 import app.grammovka.domain.model.Nutrients
 import app.grammovka.domain.model.Nutrition
 import app.grammovka.domain.parse.Fragment
@@ -72,6 +73,8 @@ data class ReviewRequest(
     /** Deferred items this request came from; removed from the queue once logged. */
     val pendingIds: List<Long> = emptyList(),
     val pendingTime: LocalTime? = null,
+    /** Card the user is adding to on «Сегодня»; a meal said in the text wins. */
+    val meal: Meal? = null,
 )
 
 class ReviewInbox {
@@ -101,10 +104,12 @@ class ReviewViewModel(
     private val pending: app.grammovka.data.repo.PendingRepository? = null,
 ) : ViewModel() {
     private val pendingIds = request?.pendingIds.orEmpty()
-    private val time: LocalTime = request?.pendingTime ?: if (request?.date == null || request.date == LocalDate.now()) {
+    private val pendingTime = request?.pendingTime
+    private val forToday = request?.date == null || request.date == LocalDate.now()
+    private val time: LocalTime get() = pendingTime ?: if (forToday) {
         LocalTime.now().withSecond(0).withNano(0)
     } else {
-        LocalTime.NOON
+        app.grammovka.domain.log.MealBlocks.defaultTime(meal)
     }
 
     /** Lines deferred until the network is back during this review. */
@@ -114,7 +119,7 @@ class ReviewViewModel(
     private val method = request?.method ?: InputMethod.TEXT
 
     /** Meal said in the input («завтрак: …»); the user can set or clear it here. */
-    var meal by mutableStateOf(request?.plan?.meal)
+    var meal by mutableStateOf(request?.plan?.meal ?: request?.meal)
     val items = mutableStateListOf<ReviewItem>()
     var busy by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
