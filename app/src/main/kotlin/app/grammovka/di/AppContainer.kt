@@ -7,6 +7,11 @@ import app.grammovka.data.keys.KeyVerifier
 import app.grammovka.data.keys.UsdaKeyVerifier
 import app.grammovka.data.settings.SecretStore
 import app.grammovka.data.settings.SettingsStore
+import app.grammovka.data.repo.FoodRepository
+import app.grammovka.data.repo.LogRepository
+import app.grammovka.data.repo.ModelRepository
+import app.grammovka.data.repo.WeightRepository
+import app.grammovka.domain.log.QuickLogPlanner
 import app.grammovka.update.UpdateRepository
 import app.grammovka.update.UpdateSource
 import okhttp3.OkHttpClient
@@ -32,4 +37,10 @@ class AppContainer(context: Context) {
     val usdaKeyVerifier: KeyVerifier by lazy { UsdaKeyVerifier(httpClient) }
 
     val updateSource: UpdateSource by lazy { UpdateRepository(appContext) }
+
+    val foodRepository by lazy { FoodRepository(database.foodDao()) }
+    val logRepository by lazy { LogRepository(database) }
+    val weightRepository by lazy { WeightRepository(database) }
+    val modelRepository by lazy { ModelRepository(database, logRepository) }
+    val quickLogPlanner by lazy { QuickLogPlanner(foodRepository) }
 }

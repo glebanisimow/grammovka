@@ -16,7 +16,7 @@ data class Ranked(val candidate: Candidate, val kind: MatchKind)
 
 /**
  * Ranking (spec): exact name/alias match, then prefix match, then usage count, then recency.
- * Comparison uses [Normalize.text] on both sides.
+ * Comparison uses [Normalize.text] on both sides; the same words in another order count as exact.
  */
 object FoodRanker {
     fun rank(query: String, candidates: List<Candidate>): List<Ranked> {
@@ -31,14 +31,14 @@ object FoodRanker {
     }
 
     /**
-     * The fragment maps to one food without asking: a single exact match, or a single hit overall.
+     * The fragment maps to one food without asking: a single exact match, or a single prefix hit overall.
      * Several exact matches (e.g. two «творог 5%» brands) stay ambiguous.
      */
     fun unambiguous(ranked: List<Ranked>): Candidate? {
         val exact = ranked.filter { it.kind == MatchKind.EXACT }
         return when {
             exact.size == 1 -> exact.single().candidate
-            exact.isEmpty() && ranked.size == 1 -> ranked.single().candidate
+            exact.isEmpty() && ranked.size == 1 && ranked.single().kind == MatchKind.PREFIX -> ranked.single().candidate
             else -> null
         }
     }
@@ -46,7 +46,7 @@ object FoodRanker {
     private fun kindOf(q: String, c: Candidate): MatchKind {
         val names = c.names.map(Normalize::text)
         return when {
-            names.any { it == q } -> MatchKind.EXACT
+            names.any { it == q || it.split(' ').sorted() == q.split(' ').sorted() } -> MatchKind.EXACT
             names.any { it.startsWith(q) } -> MatchKind.PREFIX
             else -> MatchKind.CONTAINS
         }

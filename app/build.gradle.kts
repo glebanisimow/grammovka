@@ -37,6 +37,7 @@ android {
         targetSdk = 37
         versionCode = appVersionCode
         versionName = appVersionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -72,6 +73,9 @@ android {
         compose = true
         buildConfig = true
     }
+
+    // Exported Room schemas feed MigrationTestHelper in instrumented tests.
+    sourceSets.getByName("androidTest").assets.directories.add("$projectDir/schemas")
 
     androidResources {
         localeFilters += listOf("ru")
@@ -119,4 +123,8 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.room.testing)
 }

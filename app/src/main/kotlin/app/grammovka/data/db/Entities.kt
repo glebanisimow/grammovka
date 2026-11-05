@@ -185,3 +185,14 @@ data class PendingItemEntity(
     val text: String,
     val inputMethod: InputMethod,
 )
+
+/**
+ * Cached responses of Open Food Facts and USDA (schema v2). OFF rate limits are strict:
+ * answers are reused for 30 days. [key] is e.g. "off:product:5900512320359" or "usda:search:pear asian".
+ */
+@Entity(tableName = "remote_cache")
+data class RemoteCacheEntity(
+    @PrimaryKey val key: String,
+    val body: String,
+    val fetchedAt: Long,
+)
