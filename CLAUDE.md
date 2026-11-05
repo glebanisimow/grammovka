@@ -193,6 +193,13 @@ Health Connect (вес, шаги, тренировки). Glance-виджет (о
 
 ## Состояние
 
-- Фаза: 0, не начата.
-- Решения, принятые по ходу: —
-- Отложено: —
+- Фаза: 0 завершена (2026-11-05). Следующая — фаза 1 (план-чеклист перед стартом).
+- Решения, принятые по ходу:
+  - Версии (сверены 2026-11-05): AGP 9.5.0 со встроенным Kotlin, Kotlin 2.4.21, KSP 2.3.13, Gradle 9.8.2, Compose BOM 2026.09.00, Room 2.8.5, DataStore 1.3.0, OkHttp 5.5.1, `compileSdk`/`targetSdk` 37.
+  - Дизайн: токены Protoptera (`docs/design/tokens.json`), палитра ink/amber/bone, радиусы 2–6 dp, линейные иконки (stroke 1.75, square caps) в `ui/icons/GIcons.kt`. Шрифт системный с `tnum`: Bahnschrift и Segoe принадлежат Windows, их нельзя встроить в APK. Иконка приложения — глиф «когти» amber на ink.
+  - Claude API: `anthropic-version: 2026-10-21` (последняя в platform.claude.com/docs/en/api/versioning). В ней убраны `temperature`, `top_p`, `top_k`: их передача даёт 400. Для авторизации документация называет основным `Authorization: Bearer`, а `x-api-key` — «legacy fallback, still supported». Пока используем `x-api-key`, как в этом файле.
+  - «Проверить ключ»: Anthropic — `GET /v1/models?limit=1` (бесплатно, без токенов), USDA — поиск с `pageSize=1`.
+  - Модель данных: у `Food` есть поле `searchText` (нормализованные имя и синонимы), его индексирует FTS4 (external content). `aliases` хранятся через перевод строки. В `ModelSnapshot` добавлен `bmrFloor`, в `AiCallLog` — `promptVersion` (оба нужны по спецификации). `PendingItem` включён в схему v1, чтобы в фазе 2 не делать миграцию.
+  - Бэкап: БД и `datastore/` целиком, кроме `datastore/secrets.preferences_pb`.
+  - Release-keystore: `%USERPROFILE%\.android\grammovka-release.jks`, пароли в `local.properties` (`release.*`) или `GRAMMOVKA_KEYSTORE_*`. Копия keystore должна храниться вне ноутбука: без него обновить установленный APK нельзя.
+- Отложено: проверка на реальном телефоне (в фазе 0 проверено на эмуляторе API 36).

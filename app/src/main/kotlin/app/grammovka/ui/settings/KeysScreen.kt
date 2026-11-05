@@ -3,11 +3,11 @@ package app.grammovka.ui.settings
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -110,7 +110,7 @@ private fun KeyCard(vm: KeysViewModel, secret: Secret, state: KeyUi, title: Stri
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(onClick = { vm.save(secret) }, enabled = state.draft.isNotBlank(), shape = MaterialTheme.shapes.small) {
                 Text("Сохранить")
             }
@@ -147,7 +147,6 @@ private fun ResultLine(r: KeyCheck) {
         Spacer(Modifier.size(8.dp))
         Text(text, style = MaterialTheme.typography.bodySmall, color = if (ok) Color.Unspecified else MaterialTheme.colorScheme.error)
     }
-    Spacer(Modifier.height(0.dp))
 }
 
 /** Errors say what happened and what to do, without apologies. */
