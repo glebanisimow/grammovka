@@ -48,6 +48,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun snapshotDao(): SnapshotDao
     abstract fun aiCallLogDao(): AiCallLogDao
     abstract fun remoteCacheDao(): RemoteCacheDao
+    abstract fun recipeDao(): RecipeDao
+    abstract fun templateDao(): TemplateDao
 
     companion object {
         const val NAME = "grammovka.db"

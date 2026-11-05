@@ -1,6 +1,6 @@
 package app.grammovka.domain.parse
 
-enum class QtyUnit { G, KG, ML, L, PIECE, TBSP, TSP }
+enum class QtyUnit { G, KG, ML, L, PIECE, SERVING, TBSP, TSP }
 
 /** One food mention from free-text input, before catalog lookup. */
 data class Fragment(
@@ -28,6 +28,7 @@ object InputParser {
         QtyUnit.ML to "мл|миллилитр(?:а|ов)?",
         QtyUnit.L to "л|литр(?:а|ов)?",
         QtyUnit.PIECE to "шт|штук(?:а|и)?",
+        QtyUnit.SERVING to "порци(?:я|и|й)",
         QtyUnit.TBSP to "ст\\.?\\s?л|столов(?:ая|ые|ых)\\s+лож(?:ка|ки|ек)",
         QtyUnit.TSP to "ч\\.?\\s?л|чайн(?:ая|ые|ых)\\s+лож(?:ка|ки|ек)",
     )

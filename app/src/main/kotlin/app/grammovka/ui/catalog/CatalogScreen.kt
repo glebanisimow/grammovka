@@ -35,6 +35,7 @@ import app.grammovka.data.db.FoodEntity
 import app.grammovka.data.repo.FoodRepository
 import app.grammovka.di.AppContainer
 import app.grammovka.domain.model.Fmt
+import app.grammovka.domain.model.FoodSource
 import app.grammovka.ui.common.ScreenTitle
 import app.grammovka.ui.common.SourceBadge
 import app.grammovka.ui.icons.GIcons
@@ -47,26 +48,32 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class CatalogViewModel(private val foods: FoodRepository) : ViewModel() {
     val query = MutableStateFlow("")
-    val archived = MutableStateFlow(false)
+    val tab = MutableStateFlow(CatalogTab.ACTIVE)
 
-    val items = combine(query.debounce(150), archived) { q, a -> q to a }
-        .flatMapLatest { (q, a) ->
-            if (q.isBlank()) foods.observeCatalog(a)
-            else flow { emit(foods.searchEntities(q, includeArchived = true).filter { it.archived == a }) }
+    val items = combine(query.debounce(150), tab) { q, t -> q to t }
+        .flatMapLatest { (q, t) ->
+            val archived = t == CatalogTab.ARCHIVE
+            val all = if (q.isBlank()) foods.observeCatalog(archived)
+            else flow { emit(foods.searchEntities(q, includeArchived = true).filter { it.archived == archived }) }
+            if (t == CatalogTab.RECIPES) all.map { l -> l.filter { it.source == FoodSource.RECIPE } } else all
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 }
 
+enum class CatalogTab(val label: String) { ACTIVE("Продукты"), RECIPES("Рецепты"), ARCHIVE("Архив") }
+
+/** [onOpen] gets the food; recipe foods open the recipe editor. [onCreate] gets true for a new recipe. */
 @Composable
-fun CatalogScreen(container: AppContainer, onOpen: (Long) -> Unit, onCreate: () -> Unit) {
+fun CatalogScreen(container: AppContainer, onOpen: (FoodEntity) -> Unit, onCreate: (recipe: Boolean) -> Unit) {
     val vm: CatalogViewModel = viewModel(factory = viewModelFactory { initializer { CatalogViewModel(container.foodRepository) } })
     val query by vm.query.collectAsStateWithLifecycle()
-    val archived by vm.archived.collectAsStateWithLifecycle()
+    val tab by vm.tab.collectAsStateWithLifecycle()
     val items by vm.items.collectAsStateWithLifecycle()
 
     Box(Modifier.fillMaxSize()) {
@@ -78,20 +85,21 @@ fun CatalogScreen(container: AppContainer, onOpen: (Long) -> Unit, onCreate: () 
                 singleLine = true, placeholder = { Text("Поиск по названию и синонимам") },
                 leadingIcon = { Icon(GIcons.Search, null) },
             )
-            val tabs = listOf(false to "Активные", true to "Архив")
+            val tabs = CatalogTab.entries
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(16.dp)) {
-                tabs.forEachIndexed { i, (a, l) ->
+                tabs.forEachIndexed { i, t ->
                     SegmentedButton(
-                        selected = archived == a, onClick = { vm.archived.value = a },
+                        selected = tab == t, onClick = { vm.tab.value = t },
                         shape = SegmentedButtonDefaults.itemShape(i, tabs.size, MaterialTheme.shapes.small), icon = {},
-                    ) { Text(l) }
+                    ) { Text(t.label) }
                 }
             }
             if (items.isEmpty()) {
                 Text(
                     when {
                         query.isNotBlank() -> "Ничего не найдено. Добавьте продукт кнопкой «+» или запишите его на экране «Сегодня»: новый продукт попадёт в каталог после подтверждения."
-                        archived -> "Архив пуст."
+                        tab == CatalogTab.ARCHIVE -> "Архив пуст."
+                        tab == CatalogTab.RECIPES -> "Рецептов пока нет. Кнопка «+» создаст рецепт: ингредиенты из каталога и вес готового блюда."
                         else -> "Каталог пуст. Продукты появляются здесь после первой записи или кнопкой «+»."
                     },
                     Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
@@ -99,18 +107,18 @@ fun CatalogScreen(container: AppContainer, onOpen: (Long) -> Unit, onCreate: () 
             }
             LazyColumn(Modifier.fillMaxSize()) {
                 items(items, key = { it.id }) { f ->
-                    FoodRow(f) { onOpen(f.id) }
+                    FoodRow(f) { onOpen(f) }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
         }
         FloatingActionButton(
-            onClick = onCreate,
+            onClick = { onCreate(tab == CatalogTab.RECIPES) },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
             shape = MaterialTheme.shapes.medium,
-        ) { Icon(GIcons.Plus, "Добавить продукт") }
+        ) { Icon(GIcons.Plus, if (tab == CatalogTab.RECIPES) "Новый рецепт" else "Добавить продукт") }
     }
 }
 

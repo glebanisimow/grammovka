@@ -29,6 +29,8 @@ class InputParserTest {
         "яйца 2 шт" to listOf(F("яйца", 2.0, PIECE)),
         "яйца 2шт." to listOf(F("яйца", 2.0, PIECE)),
         "яйцо 3 штуки" to listOf(F("яйцо", 3.0, PIECE)),
+        "плов 1 порция" to listOf(F("плов", 1.0, QtyUnit.SERVING)),
+        "борщ 2 порции" to listOf(F("борщ", 2.0, QtyUnit.SERVING)),
         "2 яйца" to listOf(F("яйца", 2.0)),
         "яйцо 2" to listOf(F("яйцо", 2.0)),
         "яблоко" to listOf(F("яблоко")),
@@ -116,5 +118,14 @@ class GramResolverTest {
     @Test fun noQuantity() {
         assertEquals(Grams.Known(55.0, 1.0), r("яйцо", egg))
         assertEquals(Grams.Ask(AskReason.NO_QUANTITY), r("яблоко"))
+    }
+
+    @Test fun recipeServings() {
+        val pilaf = listOf(PortionDef("порция", 300.0))
+        assertEquals(Grams.Known(300.0, 1.0), r("плов", pilaf))
+        assertEquals(Grams.Known(450.0, 1.5), r("плов 1,5 порции", pilaf))
+        assertEquals(Grams.Known(600.0, 2.0), r("плов 2", pilaf))
+        assertEquals(Grams.Known(250.0), r("плов 250", pilaf))
+        assertEquals(Grams.Ask(AskReason.NO_PIECE_PORTION), r("плов 1 порция"))
     }
 }

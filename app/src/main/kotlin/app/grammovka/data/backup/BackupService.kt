@@ -5,6 +5,10 @@ import app.grammovka.data.db.AppDatabase
 import app.grammovka.data.db.DayStatusEntity
 import app.grammovka.data.db.FoodEntity
 import app.grammovka.data.db.LogEntryEntity
+import app.grammovka.data.db.MealTemplateEntity
+import app.grammovka.data.db.MealTemplateItemEntity
+import app.grammovka.data.db.RecipeEntity
+import app.grammovka.data.db.RecipeItemEntity
 import app.grammovka.data.db.PortionEntity
 import app.grammovka.data.db.WeightEntryEntity
 import app.grammovka.data.settings.AppSettings
@@ -48,6 +52,9 @@ data class EntryDto(
 
 @Serializable data class DayStatusDto(val date: String, val incomplete: Boolean, val note: String? = null)
 @Serializable data class WeightDto(val date: String, val kg: Double, val source: String)
+@Serializable data class LineDto(val foodId: Long, val grams: Double)
+@Serializable data class RecipeDto(val id: Long, val name: String, val cookedWeightG: Double, val foodId: Long? = null, val items: List<LineDto>)
+@Serializable data class TemplateDto(val id: Long, val name: String, val createdAt: Long, val items: List<LineDto>)
 
 @Serializable
 data class SettingsDto(
@@ -60,13 +67,15 @@ data class SettingsDto(
 @Serializable
 data class BackupDto(
     val format: String = FORMAT,
-    val version: Int = 1,
+    val version: Int = 2,
     val exportedAt: Long,
     val foods: List<FoodDto>,
     val entries: List<EntryDto>,
     val dayStatus: List<DayStatusDto>,
     val weights: List<WeightDto>,
     val settings: SettingsDto,
+    val recipes: List<RecipeDto> = emptyList(),
+    val templates: List<TemplateDto> = emptyList(),
 ) {
     companion object {
         const val FORMAT = "grammovka-backup"
@@ -105,6 +114,12 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
             dayStatus = db.dayStatusDao().all().map { DayStatusDto(it.date.toString(), it.incomplete, it.note) },
             weights = db.weightDao().all().map { WeightDto(it.date.toString(), it.kg, it.source.name) },
             settings = s.toDto(),
+            recipes = db.recipeDao().allItems().groupBy { it.recipeId }.let { items ->
+                db.recipeDao().all().map { r -> RecipeDto(r.id, r.name, r.cookedWeightG, r.foodId, items[r.id].orEmpty().map { LineDto(it.foodId, it.grams) }) }
+            },
+            templates = db.templateDao().allItems().groupBy { it.templateId }.let { items ->
+                db.templateDao().all().map { t -> TemplateDto(t.id, t.name, t.createdAt, items[t.id].orEmpty().map { LineDto(it.foodId, it.grams) }) }
+            },
         )
         out.write(json.encodeToString(BackupDto.serializer(), dto).toByteArray(Charsets.UTF_8))
     }
@@ -139,6 +154,14 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
                 },
             )
             dto.dayStatus.forEach { db.dayStatusDao().upsert(DayStatusEntity(LocalDate.parse(it.date), it.incomplete, it.note)) }
+            dto.recipes.forEach { r ->
+                db.recipeDao().insert(RecipeEntity(r.id, r.name, r.cookedWeightG, r.foodId))
+                if (r.items.isNotEmpty()) db.recipeDao().insertItems(r.items.map { RecipeItemEntity(recipeId = r.id, foodId = it.foodId, grams = it.grams) })
+            }
+            dto.templates.forEach { t ->
+                db.templateDao().insert(MealTemplateEntity(t.id, t.name, t.createdAt))
+                if (t.items.isNotEmpty()) db.templateDao().insertItems(t.items.map { MealTemplateItemEntity(templateId = t.id, foodId = it.foodId, grams = it.grams) })
+            }
             dto.weights.forEach { db.weightDao().upsert(WeightEntryEntity(LocalDate.parse(it.date), it.kg, WeightSource.valueOf(it.source))) }
         }
         val st = dto.settings

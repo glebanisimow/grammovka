@@ -53,6 +53,7 @@ class AppContainer(context: Context) {
 
     val foodRepository by lazy { FoodRepository(database.foodDao()) }
     val logRepository by lazy { LogRepository(database) }
+    val recipeRepository by lazy { app.grammovka.data.repo.RecipeRepository(database, foodRepository) }
     val weightRepository by lazy { WeightRepository(database) }
     val modelRepository by lazy { ModelRepository(database, logRepository) }
     val quickLogPlanner by lazy { QuickLogPlanner(foodRepository) }

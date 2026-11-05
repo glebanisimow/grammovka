@@ -57,4 +57,10 @@ object GIcons {
     val Camera = icon("camera", "M3 7h4l2-3h6l2 3h4v13H3z", circle(12f, 13f, 4f))
     val Plus = icon("plus", "M12 5v14M5 12h14")
     val Download = icon("download", "M12 4v11M7 10l5 5 5-5M5 20h14")
+    val Trash = icon("trash", "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6")
+    val Mic = icon("mic", "M9 6a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z", "M5 11a7 7 0 0 0 14 0M12 18v3")
+    val Bell = icon("bell", "M6 16V11a6 6 0 0 1 12 0v5l2 2H4z", "M10 21h4")
+    val Pulse = icon("pulse", "M3 12h4l2-5 4 10 2-5h6")
+    val Repeat = icon("repeat", "M17 3l3 3-3 3M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3M20 13v2a3 3 0 0 1-3 3H4")
+    val Bookmark = icon("bookmark", "M6 3h12v18l-6-4-6 4z")
 }

@@ -139,3 +139,66 @@ interface RemoteCacheDao {
     @Upsert suspend fun put(e: RemoteCacheEntity)
     @Query("DELETE FROM remote_cache WHERE fetchedAt < :before") suspend fun purge(before: Long)
 }
+
+/** A recipe or template line joined with its catalog food (current values, for editing and previews). */
+data class FoodLineRow(
+    val id: Long,
+    val ownerId: Long,
+    val foodId: Long,
+    val grams: Double,
+    val name: String,
+    val brand: String?,
+    val kcal: Double,
+    val protein: Double,
+    val fat: Double,
+    val carbs: Double,
+    val fiber: Double?,
+)
+
+@Dao
+interface RecipeDao {
+    @Insert suspend fun insert(r: RecipeEntity): Long
+    @Update suspend fun update(r: RecipeEntity)
+    @Query("SELECT * FROM recipe WHERE id = :id") suspend fun byId(id: Long): RecipeEntity?
+    @Query("SELECT * FROM recipe WHERE foodId = :foodId") suspend fun byFoodId(foodId: Long): RecipeEntity?
+    @Query("SELECT * FROM recipe ORDER BY name") suspend fun all(): List<RecipeEntity>
+    @Query("DELETE FROM recipe WHERE id = :id") suspend fun delete(id: Long)
+
+    @Query(
+        "SELECT i.id, i.recipeId AS ownerId, i.foodId, i.grams, f.name, f.brand, f.kcal, f.protein, f.fat, f.carbs, f.fiber " +
+            "FROM recipe_item i JOIN food f ON f.id = i.foodId WHERE i.recipeId = :recipeId ORDER BY i.id",
+    )
+    suspend fun items(recipeId: Long): List<FoodLineRow>
+
+    @Query("SELECT * FROM recipe_item ORDER BY id") suspend fun allItems(): List<RecipeItemEntity>
+    @Query("DELETE FROM recipe_item WHERE recipeId = :recipeId") suspend fun deleteItems(recipeId: Long)
+    @Insert suspend fun insertItems(items: List<RecipeItemEntity>)
+
+    @Transaction
+    suspend fun replaceItems(recipeId: Long, items: List<RecipeItemEntity>) {
+        deleteItems(recipeId)
+        if (items.isNotEmpty()) insertItems(items)
+    }
+}
+
+@Dao
+interface TemplateDao {
+    @Insert suspend fun insert(t: MealTemplateEntity): Long
+    @Insert suspend fun insertItems(items: List<MealTemplateItemEntity>)
+    @Query("DELETE FROM meal_template WHERE id = :id") suspend fun delete(id: Long)
+    @Query("SELECT * FROM meal_template ORDER BY createdAt DESC") fun observeAll(): Flow<List<MealTemplateEntity>>
+    @Query("SELECT * FROM meal_template ORDER BY id") suspend fun all(): List<MealTemplateEntity>
+    @Query("SELECT * FROM meal_template_item ORDER BY id") suspend fun allItems(): List<MealTemplateItemEntity>
+
+    @Query(
+        "SELECT i.id, i.templateId AS ownerId, i.foodId, i.grams, f.name, f.brand, f.kcal, f.protein, f.fat, f.carbs, f.fiber " +
+            "FROM meal_template_item i JOIN food f ON f.id = i.foodId ORDER BY i.id",
+    )
+    fun observeItems(): Flow<List<FoodLineRow>>
+
+    @Query(
+        "SELECT i.id, i.templateId AS ownerId, i.foodId, i.grams, f.name, f.brand, f.kcal, f.protein, f.fat, f.carbs, f.fiber " +
+            "FROM meal_template_item i JOIN food f ON f.id = i.foodId WHERE i.templateId = :templateId ORDER BY i.id",
+    )
+    suspend fun items(templateId: Long): List<FoodLineRow>
+}

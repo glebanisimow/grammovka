@@ -28,6 +28,10 @@ import app.grammovka.ui.capture.CaptureMode
 import app.grammovka.ui.capture.CaptureScreen
 import app.grammovka.ui.catalog.CatalogScreen
 import app.grammovka.ui.catalog.FoodEditScreen
+import app.grammovka.ui.catalog.RecipeEditScreen
+import app.grammovka.domain.model.FoodSource
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import app.grammovka.ui.icons.GIcons
 import app.grammovka.ui.progress.ProgressScreen
 import app.grammovka.ui.review.ReviewRoot
@@ -47,6 +51,7 @@ import java.time.LocalDate
 @Serializable object ProfileRoute
 @Serializable object ReviewRoute
 @Serializable data class FoodEditRoute(val id: Long = -1, val barcode: String = "")
+@Serializable data class RecipeEditRoute(val id: Long = -1)
 @Serializable data class CaptureRoute(val date: String, val mode: String)
 
 private data class Tab(val route: Any, val label: String, val icon: ImageVector)
@@ -106,7 +111,17 @@ fun AppRoot(container: AppContainer) {
                 )
             }
             composable<CatalogRoute> {
-                CatalogScreen(container, onOpen = { nav.navigate(FoodEditRoute(it)) }, onCreate = { nav.navigate(FoodEditRoute()) })
+                val scope = rememberCoroutineScope()
+                CatalogScreen(
+                    container,
+                    onOpen = { f ->
+                        scope.launch {
+                            val recipe = if (f.source == FoodSource.RECIPE) container.recipeRepository.byFoodId(f.id) else null
+                            nav.navigate(if (recipe != null) RecipeEditRoute(recipe.id) else FoodEditRoute(f.id))
+                        }
+                    },
+                    onCreate = { recipe -> nav.navigate(if (recipe) RecipeEditRoute() else FoodEditRoute()) },
+                )
             }
             composable<ProgressRoute> { ProgressScreen(container) }
             composable<SettingsRoute> {
@@ -117,6 +132,10 @@ fun AppRoot(container: AppContainer) {
             composable<FoodEditRoute> { entry ->
                 val r = entry.toRoute<FoodEditRoute>()
                 FoodEditScreen(container, r.id.takeIf { it > 0 }, r.barcode.ifEmpty { null }, onBack = { nav.popBackStack() })
+            }
+            composable<RecipeEditRoute> { entry ->
+                val r = entry.toRoute<RecipeEditRoute>()
+                RecipeEditScreen(container, r.id.takeIf { it > 0 }, onBack = { nav.popBackStack() })
             }
             composable<ReviewRoute> { ReviewRoot(container, onBack = { nav.popBackStack() }) }
             composable<CaptureRoute> { entry ->
