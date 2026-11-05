@@ -41,4 +41,26 @@ class MigrationTest {
         }
         db.close()
     }
+
+    @Test
+    fun migrate2To3AddsRecipeFoodAndMeal() {
+        helper.createDatabase(dbName, 2).apply {
+            execSQL(
+                "INSERT INTO food (id, name, aliases, searchText, kcal, protein, fat, carbs, basis, source, usageCount, archived, createdAt, updatedAt) " +
+                    "VALUES (1, 'Гречка', '', 'гречка', 110, 4, 1, 21, 'COOKED', 'MANUAL', 0, 0, 0, 0)",
+            )
+            execSQL("INSERT INTO recipe (id, name, cookedWeightG) VALUES (1, 'Плов', 1200)")
+            execSQL(
+                "INSERT INTO log_entry (date, time, foodId, foodName, grams, kcal, protein, fat, carbs, inputMethod) " +
+                    "VALUES ('2026-11-05', '08:30', 1, 'Гречка', 200, 220, 8, 2, 42, 'TEXT')",
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 3, true, Migrations.M2_3).use { db ->
+            db.query("SELECT foodId FROM recipe WHERE id = 1").use { assertEquals(true, it.moveToFirst() && it.isNull(0)) }
+            db.query("SELECT meal FROM log_entry").use { assertEquals(true, it.moveToFirst() && it.isNull(0)) }
+            db.execSQL("UPDATE recipe SET foodId = 1 WHERE id = 1")
+            db.execSQL("UPDATE log_entry SET meal = 'BREAKFAST'")
+        }
+    }
 }

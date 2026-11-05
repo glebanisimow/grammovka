@@ -63,6 +63,7 @@ fun ReviewScreen(
         }
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+            app.grammovka.ui.common.MealChips(vm.meal, { vm.meal = it })
             val total = vm.items.mapNotNull { vm.kcalOf(it) }.sum()
             Button(
                 onClick = { vm.error = null; vm.commit(onBack) },

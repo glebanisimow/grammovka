@@ -14,3 +14,6 @@ enum class InputMethod { TEXT, VOICE, BARCODE, LABEL, PHOTO, QUICK, TEMPLATE }
 enum class WeightSource { MANUAL, HEALTH_CONNECT }
 
 enum class AiPurpose { PARSE, RESOLVE, LABEL, MEAL_PHOTO, ANALYSIS, CHAT }
+
+/** Meal of a log entry. Set only when the user says so («завтрак: …», a chip); null means unspecified (snacks too, unless said). */
+enum class Meal(val ru: String) { BREAKFAST("завтрак"), LUNCH("обед"), DINNER("ужин"), SNACK("перекус") }

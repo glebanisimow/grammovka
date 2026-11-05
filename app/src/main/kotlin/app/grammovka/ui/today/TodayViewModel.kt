@@ -88,7 +88,7 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
                 val plan = c.quickLogPlanner.plan(text)
                 if (plan.canLogDirectly) {
                     val items = plan.items.map { it as app.grammovka.domain.log.PlanItem.Ready }
-                    val entries = items.map { NewEntry(it.food.id, it.food.displayName, it.grams, it.food.per100, InputMethod.TEXT) }
+                    val entries = items.map { NewEntry(it.food.id, it.food.displayName, it.grams, it.food.per100, InputMethod.TEXT, meal = plan.meal) }
                     val ids = c.logRepository.log(date.value, timeFor(date.value), entries)
                     c.logEvents.emit(LoggedEvent(ids, ids.size, entries.sumOf { app.grammovka.domain.model.Nutrition.forGrams(it.per100, it.grams).kcal }))
                     onLogged()

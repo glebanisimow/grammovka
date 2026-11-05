@@ -10,6 +10,7 @@ import app.grammovka.domain.model.Confidence
 import app.grammovka.domain.model.FoodBasis
 import app.grammovka.domain.model.FoodSource
 import app.grammovka.domain.model.InputMethod
+import app.grammovka.domain.model.Meal
 import app.grammovka.domain.model.WeightSource
 import java.time.LocalDate
 import java.time.LocalTime
@@ -63,11 +64,20 @@ data class PortionEntity(
     val grams: Double,
 )
 
-@Entity(tableName = "recipe")
+/**
+ * A recipe is materialized as a catalog food ([foodId], source RECIPE) with per-100 g values computed
+ * from items and the cooked weight. Editing the recipe recomputes that food; past entries keep their snapshot.
+ */
+@Entity(
+    tableName = "recipe",
+    foreignKeys = [ForeignKey(FoodEntity::class, ["id"], ["foodId"], onDelete = ForeignKey.SET_NULL)],
+    indices = [Index("foodId", unique = true)],
+)
 data class RecipeEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val cookedWeightG: Double,
+    val foodId: Long? = null,
 )
 
 @Entity(
@@ -126,6 +136,7 @@ data class LogEntryEntity(
     val carbs: Double,
     val inputMethod: InputMethod,
     val note: String? = null,
+    val meal: Meal? = null,
 )
 
 @Entity(tableName = "day_status")

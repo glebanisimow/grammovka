@@ -20,7 +20,7 @@ class Converters {
 }
 
 @Database(
-    version = 2,
+    version = 3,
     exportSchema = true,
     entities = [
         FoodEntity::class,
@@ -71,5 +71,15 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(M1_2)
+    /** v3: recipe → materialized food link; optional meal on log entries. */
+    val M2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // ADD COLUMN with REFERENCES is allowed because the implicit default is NULL.
+            db.execSQL("ALTER TABLE `recipe` ADD COLUMN `foodId` INTEGER REFERENCES `food`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_recipe_foodId` ON `recipe` (`foodId`)")
+            db.execSQL("ALTER TABLE `log_entry` ADD COLUMN `meal` TEXT")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(M1_2, M2_3)
 }

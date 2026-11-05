@@ -17,6 +17,7 @@ import app.grammovka.domain.model.Confidence
 import app.grammovka.domain.model.FoodBasis
 import app.grammovka.domain.model.FoodSource
 import app.grammovka.domain.model.InputMethod
+import app.grammovka.domain.model.Meal
 import app.grammovka.domain.model.WeightSource
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -42,6 +43,7 @@ data class FoodDto(
 data class EntryDto(
     val date: String, val time: String, val foodId: Long? = null, val foodName: String, val grams: Double,
     val kcal: Double, val protein: Double, val fat: Double, val carbs: Double, val inputMethod: String, val note: String? = null,
+    val meal: String? = null,
 )
 
 @Serializable data class DayStatusDto(val date: String, val incomplete: Boolean, val note: String? = null)
@@ -98,7 +100,7 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
                 )
             },
             entries = db.logDao().between(FIRST_DAY, LAST_DAY).map {
-                EntryDto(it.date.toString(), it.time.toString(), it.foodId, it.foodName, it.grams, it.kcal, it.protein, it.fat, it.carbs, it.inputMethod.name, it.note)
+                EntryDto(it.date.toString(), it.time.toString(), it.foodId, it.foodName, it.grams, it.kcal, it.protein, it.fat, it.carbs, it.inputMethod.name, it.note, it.meal?.name)
             },
             dayStatus = db.dayStatusDao().all().map { DayStatusDto(it.date.toString(), it.incomplete, it.note) },
             weights = db.weightDao().all().map { WeightDto(it.date.toString(), it.kg, it.source.name) },
@@ -132,6 +134,7 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
                         date = LocalDate.parse(it.date), time = LocalTime.parse(it.time), foodId = it.foodId, foodName = it.foodName,
                         grams = it.grams, kcal = it.kcal, protein = it.protein, fat = it.fat, carbs = it.carbs,
                         inputMethod = InputMethod.valueOf(it.inputMethod), note = it.note,
+                        meal = it.meal?.let { m -> runCatching { Meal.valueOf(m) }.getOrNull() },
                     )
                 },
             )

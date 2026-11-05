@@ -98,6 +98,9 @@ class ReviewViewModel(
 ) : ViewModel() {
     val date: LocalDate = request?.date ?: LocalDate.now()
     private val method = request?.method ?: InputMethod.TEXT
+
+    /** Meal said in the input («завтрак: …»); the user can set or clear it here. */
+    var meal by mutableStateOf(request?.plan?.meal)
     val items = mutableStateListOf<ReviewItem>()
     var busy by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
@@ -264,12 +267,12 @@ class ReviewViewModel(
                     is ReviewItem.Matched -> {
                         // The user picked this food for their own words: remember them as a synonym.
                         if (item.candidates.size > 1 || method == InputMethod.TEXT) foods.learnAlias(item.selected!!.id, item.fragment.name)
-                        NewEntry(item.selected!!.id, item.selected!!.displayName, grams, item.selected!!.per100, method)
+                        NewEntry(item.selected!!.id, item.selected!!.displayName, grams, item.selected!!.per100, method, meal = meal)
                     }
                     is ReviewItem.NewFood -> {
                         val d = item.form.toDraft()!!.withAlias(item.fragment.name)
                         val id = if (item.save) foods.create(d) else null
-                        NewEntry(id, listOfNotNull(d.name, d.brand).joinToString(", "), grams, d.per100, method)
+                        NewEntry(id, listOfNotNull(d.name, d.brand).joinToString(", "), grams, d.per100, method, meal = meal)
                     }
                     is ReviewItem.Unresolved -> error("unreachable")
                 }

@@ -1,11 +1,13 @@
 package app.grammovka.domain.log
 
 import app.grammovka.domain.model.CatalogFood
+import app.grammovka.domain.model.Meal
 import app.grammovka.domain.parse.AskReason
 import app.grammovka.domain.parse.Fragment
 import app.grammovka.domain.parse.GramResolver
 import app.grammovka.domain.parse.Grams
 import app.grammovka.domain.parse.InputParser
+import app.grammovka.domain.parse.MealPrefix
 import app.grammovka.domain.parse.PortionDef
 import app.grammovka.domain.search.Candidate
 import app.grammovka.domain.search.FoodRanker
@@ -33,7 +35,7 @@ sealed interface PlanItem {
     data class Unknown(override val fragment: Fragment, val candidates: List<CatalogFood>) : PlanItem
 }
 
-data class LogPlan(val items: List<PlanItem>) {
+data class LogPlan(val items: List<PlanItem>, val meal: Meal? = null) {
     /** Spec: every fragment matched unambiguously with a known weight → log at once, with Undo. */
     val canLogDirectly: Boolean get() = items.isNotEmpty() && items.all { it is PlanItem.Ready }
 }
@@ -41,7 +43,10 @@ data class LogPlan(val items: List<PlanItem>) {
 /** Offline fast path: parse → FTS → rank → grams. */
 class QuickLogPlanner(private val catalog: CatalogPort) {
 
-    suspend fun plan(input: String): LogPlan = LogPlan(InputParser.parse(input).map { plan(it) })
+    suspend fun plan(input: String): LogPlan {
+        val (meal, rest) = MealPrefix.extract(input)
+        return LogPlan(InputParser.parse(rest).map { plan(it) }, meal)
+    }
 
     suspend fun plan(fragment: Fragment): PlanItem {
         val hits = catalog.search(fragment.name, CANDIDATES)

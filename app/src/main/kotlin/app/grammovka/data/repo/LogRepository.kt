@@ -6,6 +6,7 @@ import app.grammovka.data.db.DayStatusEntity
 import app.grammovka.data.db.LogEntryEntity
 import app.grammovka.domain.engine.DayIntake
 import app.grammovka.domain.model.InputMethod
+import app.grammovka.domain.model.Meal
 import app.grammovka.domain.model.Nutrients
 import app.grammovka.domain.model.Nutrition
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +22,7 @@ data class NewEntry(
     val per100: Nutrients,
     val method: InputMethod,
     val note: String? = null,
+    val meal: Meal? = null,
 )
 
 class LogRepository(
@@ -39,7 +41,7 @@ class LogRepository(
                 val a = Nutrition.forGrams(it.per100, it.grams)
                 LogEntryEntity(
                     date = date, time = time, foodId = it.foodId, foodName = it.foodName, grams = it.grams,
-                    kcal = a.kcal, protein = a.protein, fat = a.fat, carbs = a.carbs, inputMethod = it.method, note = it.note,
+                    kcal = a.kcal, protein = a.protein, fat = a.fat, carbs = a.carbs, inputMethod = it.method, note = it.note, meal = it.meal,
                 )
             },
         )
