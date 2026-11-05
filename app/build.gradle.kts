@@ -18,6 +18,12 @@ fun secret(propKey: String, envKey: String): String? =
     localProps.getProperty(propKey)?.takeIf { it.isNotBlank() }
         ?: System.getenv(envKey)?.takeIf { it.isNotBlank() }
 
+// Must strictly increase for every APK installed over a previous one: minutes since 2026-01-01 UTC,
+// so local and CI builds share one monotonic sequence. -PversionCode=<n> overrides it.
+val appVersionCode: Int = providers.gradleProperty("versionCode").orNull?.toInt()
+    ?: ((System.currentTimeMillis() / 1000L - 1_767_225_600L) / 60L).toInt()
+val appVersionName = "0.1.0"
+
 val releaseStoreFile = secret("release.storeFile", "GRAMMOVKA_KEYSTORE_FILE")
 val hasReleaseSigning = releaseStoreFile != null && file(releaseStoreFile).exists()
 
@@ -29,8 +35,8 @@ android {
         applicationId = "app.grammovka"
         minSdk = 28
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     signingConfigs {

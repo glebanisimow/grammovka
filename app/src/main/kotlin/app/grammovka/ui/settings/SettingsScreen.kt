@@ -31,6 +31,7 @@ import app.grammovka.di.AppContainer
 import app.grammovka.ui.common.ScreenTitle
 import app.grammovka.ui.icons.GIcons
 import app.grammovka.ui.theme.GTheme
+import app.grammovka.update.AppUpdateSection
 import kotlinx.coroutines.launch
 
 @Composable
@@ -58,6 +59,8 @@ fun SettingsScreen(container: AppContainer, onOpenKeys: () -> Unit) {
                 ) { Text(label) }
             }
         }
+        HorizontalDivider(Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        AppUpdateSection(container)
     }
 }
 

@@ -55,4 +55,5 @@ object GIcons {
     val Barcode = icon("barcode", "M4 5v14M7 5v14M11 5v14M14 5v14M18 5v14M20 5v14")
     val Camera = icon("camera", "M3 7h4l2-3h6l2 3h4v13H3z", circle(12f, 13f, 4f))
     val Plus = icon("plus", "M12 5v14M5 12h14")
+    val Download = icon("download", "M12 4v11M7 10l5 5 5-5M5 20h14")
 }

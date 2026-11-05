@@ -7,6 +7,8 @@ import app.grammovka.data.keys.KeyVerifier
 import app.grammovka.data.keys.UsdaKeyVerifier
 import app.grammovka.data.settings.SecretStore
 import app.grammovka.data.settings.SettingsStore
+import app.grammovka.update.UpdateRepository
+import app.grammovka.update.UpdateSource
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -28,4 +30,6 @@ class AppContainer(context: Context) {
 
     val anthropicKeyVerifier: KeyVerifier by lazy { AnthropicKeyVerifier(httpClient) }
     val usdaKeyVerifier: KeyVerifier by lazy { UsdaKeyVerifier(httpClient) }
+
+    val updateSource: UpdateSource by lazy { UpdateRepository(appContext) }
 }

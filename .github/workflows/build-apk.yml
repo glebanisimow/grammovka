@@ -1,0 +1,89 @@
+name: build-apk
+
+# Every push to main builds a signed release APK and publishes it to the "android" release,
+# where the in-app updater (Настройки → Обновление) picks it up.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Do not let an older main build replace a newer update while both are publishing.
+concurrency:
+  group: grammovka-android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-37.0 build-tools;37.0.0"
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Restore release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.GRAMMOVKA_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Secret GRAMMOVKA_KEYSTORE_BASE64 is not set"; exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "GRAMMOVKA_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: ./gradlew test
+
+      - name: Assemble signed release APK
+        env:
+          GRAMMOVKA_KEYSTORE_PASSWORD: ${{ secrets.GRAMMOVKA_KEYSTORE_PASSWORD }}
+          GRAMMOVKA_KEY_ALIAS: ${{ secrets.GRAMMOVKA_KEY_ALIAS }}
+          GRAMMOVKA_KEY_PASSWORD: ${{ secrets.GRAMMOVKA_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease
+
+      - name: Verify signature
+        run: |
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
+
+      - name: Publish Android update
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" != "$GITHUB_SHA" ]; then
+            echo "A newer commit is on main; leave publication to its build."
+            exit 0
+          fi
+          SOURCE=app/build/outputs/apk/release/app-release.apk
+          VERSION=$(python3 -c 'import json; print(json.load(open("app/build/outputs/apk/release/output-metadata.json"))["elements"][0]["versionCode"])')
+          APK="grammovka-${VERSION}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.apk"
+          cp "$SOURCE" "$APK"
+          python3 tools/build_update_manifest.py \
+            --apk "$APK" \
+            --aapt2 "$ANDROID_HOME/build-tools/37.0.0/aapt2" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/android/$APK" \
+            --output update.json
+          if ! gh release view android >/dev/null 2>&1; then
+            gh release create android --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title "Android · последняя сборка" \
+              --notes "Подписанная сборка Граммовки. Первая установка: скачайте grammovka-latest.apk. Дальше обновления ставятся из приложения: Настройки → Обновление. Данные сохраняются."
+          fi
+          # Keep versioned APKs: an app that already read the previous manifest must still be able to download it.
+          gh release upload android "$APK" --clobber
+          cp "$SOURCE" grammovka-latest.apk
+          gh release upload android grammovka-latest.apk --clobber
+          # Publish metadata last so it can never point at an APK that has not been uploaded.
+          gh release upload android update.json --clobber
