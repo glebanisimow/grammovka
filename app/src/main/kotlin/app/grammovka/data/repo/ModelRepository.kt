@@ -34,8 +34,8 @@ data class DayModel(
 class ModelState(
     private val engine: EnergyModel,
     private val profile: Profile,
-    private val days: Map<LocalDate, DayIntake>,
-    private val weights: Map<LocalDate, Double>,
+    val days: Map<LocalDate, DayIntake>,
+    val weights: Map<LocalDate, Double>,
     val snapshots: Map<LocalDate, Snapshot>,
 ) {
     fun day(date: LocalDate): DayModel? {

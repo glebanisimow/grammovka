@@ -23,13 +23,17 @@ data class ExtraColors(
     val warning: Color,
     val border: Color,
     val formField: Color,
+    /** Neutral reference series in charts (validated against the accent for CVD and normal-vision separation). */
+    val chartNeutral: Color,
 )
 
 private val DarkExtra = ExtraColors(
     DarkTokens.textMuted, DarkTokens.accentText, DarkTokens.success, Brand.Amber, DarkTokens.border, DarkTokens.formField,
+    Color(0xFFA39E91),
 )
 private val LightExtra = ExtraColors(
     LightTokens.textMuted, LightTokens.accentText, LightTokens.success, Brand.Amber, LightTokens.border, LightTokens.formField,
+    Color(0xFF2B2924),
 )
 
 val LocalExtraColors = staticCompositionLocalOf { DarkExtra }
