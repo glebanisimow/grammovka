@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Back up the database and settings; the encrypted secrets store is never backed up
+     (its Keystore key cannot leave the device, so a restored copy would be unreadable anyway). -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="database" path="." />
+        <include domain="file" path="datastore/" />
+        <exclude domain="file" path="datastore/secrets.preferences_pb" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="database" path="." />
+        <include domain="file" path="datastore/" />
+        <exclude domain="file" path="datastore/secrets.preferences_pb" />
+    </device-transfer>
+</data-extraction-rules>
