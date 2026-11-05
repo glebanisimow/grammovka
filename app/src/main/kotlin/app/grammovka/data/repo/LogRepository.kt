@@ -61,6 +61,8 @@ class LogRepository(
         logDao.update(entry.copy(grams = grams, kcal = entry.kcal * k, protein = entry.protein * k, fat = entry.fat * k, carbs = entry.carbs * k))
     }
 
+    suspend fun lastGrams(foodId: Long): Double? = logDao.lastGrams(foodId)
+
     fun observeDay(date: LocalDate): Flow<List<LogEntryEntity>> = logDao.observeDay(date)
 
     fun observeStatus(date: LocalDate): Flow<Boolean> = statusDao.observe(date).map { it?.incomplete == true }

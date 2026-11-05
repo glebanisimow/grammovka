@@ -33,14 +33,15 @@ fun ReviewRoot(container: AppContainer, onBack: () -> Unit) {
             }
         },
     )
-    Column {
-        AiStatus(vm)
-        ReviewScreen(vm, onBack) { item ->
+    ReviewScreen(
+        vm, onBack,
+        extraActions = { item ->
             if (vm.hasKey) {
                 AssistChip(onClick = { vm.resolveWithAi(item) }, enabled = !vm.aiRunning, label = { Text("Найти через Claude") })
             }
-        }
-    }
+        },
+        status = { AiStatus(vm) },
+    )
 }
 
 @Composable

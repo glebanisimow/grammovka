@@ -68,12 +68,12 @@ class ModelRepository(
         val allWeights = weights.all().associate { it.date to it.kg }
         val first = allWeights.keys.minOrNull()
         if (profile == null || first == null || first.isAfter(today)) {
-            snapshots.deleteFrom(LocalDate.MIN)
+            snapshots.deleteFrom(LocalDate.of(1900, 1, 1))
             return null
         }
         val days: Map<LocalDate, DayIntake> = logs.intake(first.minusDays(28), today)
         val run = engine.run(first, today, profile, days, allWeights, previousTdee = null)
-        snapshots.deleteFrom(LocalDate.MIN)
+        snapshots.deleteFrom(LocalDate.of(1900, 1, 1))
         snapshots.upsertAll(run.map { it.toEntity() })
         return ModelState(engine, profile, days, allWeights, run.associateBy { it.date })
     }

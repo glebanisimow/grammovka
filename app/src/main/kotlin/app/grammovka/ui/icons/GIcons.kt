@@ -39,6 +39,7 @@ object GIcons {
     val Undo = icon("undo", "M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-4")
     val Theme = icon("theme", "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z")
     val Next = icon("next", "M9 5l7 7-7 7")
+    val Prev = icon("prev", "M15 5l-7 7 7 7")
 
     // Drawn for this app in the same style.
     /** Today: a plate seen from above. */

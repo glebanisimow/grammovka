@@ -117,7 +117,10 @@ fun CaptureScreen(
         scope.launch {
             container.foodRepository.byBarcode(code)?.let { f ->
                 val food = f.toDomain()
-                onReview(ReviewRequest(date, InputMethod.BARCODE, LogPlan(listOf(PlanItem.NeedsGrams(Fragment(food.name, food.name), food, AskReason.NO_QUANTITY)))))
+                val frag = Fragment(food.name, food.name)
+                val last = container.logRepository.lastGrams(food.id)
+                val item = if (last != null) PlanItem.Ready(frag, food, last, null) else PlanItem.NeedsGrams(frag, food, AskReason.NO_QUANTITY)
+                onReview(ReviewRequest(date, InputMethod.BARCODE, LogPlan(listOf(item))))
                 return@launch
             }
             try {
@@ -127,7 +130,13 @@ fun CaptureScreen(
                         name = p.name ?: "", brand = p.brand, per100 = p.per100, basis = FoodBasis.AS_SOLD,
                         source = FoodSource.OFF, sourceRef = code, barcode = code,
                     )
-                    onReview(ReviewRequest(date, InputMethod.BARCODE, drafts = listOf(draft to "Open Food Facts, штрихкод $code${p.quantity?.let { ", упаковка $it" } ?: ""}")))
+                    onReview(
+                        ReviewRequest(
+                            date, InputMethod.BARCODE,
+                            drafts = listOf(draft to "Open Food Facts, штрихкод $code${p.quantity?.let { ", упаковка $it" } ?: ""}"),
+                            grams = packageGrams(p.quantity),
+                        ),
+                    )
                 } else {
                     state = CaptureState.NoNutrition(code, p?.name)
                 }
@@ -140,28 +149,29 @@ fun CaptureScreen(
         }
     }
 
+    fun labelFromJpeg(jpeg: ByteArray) {
+        state = CaptureState.Busy("Claude читает этикетку…")
+        scope.launch {
+            try {
+                when (val r = container.aiService.label(jpeg, pendingBarcode)) {
+                    is LabelResult.Found -> onReview(ReviewRequest(date, InputMethod.LABEL, drafts = listOf(r.draft to r.note)))
+                    is LabelResult.NotFound -> state = CaptureState.Error(
+                        (r.note?.let { "$it. " } ?: "") + "Таблица пищевой ценности не читается. Снимите ближе и ровнее или введите вручную.",
+                    )
+                }
+            } catch (e: ClaudeException) {
+                state = CaptureState.Error(e.userMessage())
+            }
+        }
+    }
+
     fun takeLabel() {
         state = CaptureState.Busy("Снимаю…")
         imageCapture.takePicture(
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageCapturedCallback() {
                 override fun onCaptureSuccess(image: ImageProxy) {
-                    val jpeg = image.use { toScaledJpeg(it) }
-                    state = CaptureState.Busy("Claude читает этикетку…")
-                    scope.launch {
-                        try {
-                            when (val r = container.aiService.label(jpeg, pendingBarcode)) {
-                                is LabelResult.Found -> onReview(
-                                    ReviewRequest(date, InputMethod.LABEL, drafts = listOf(r.draft to r.note)),
-                                )
-                                is LabelResult.NotFound -> state = CaptureState.Error(
-                                    (r.note?.let { "$it. " } ?: "") + "Таблица пищевой ценности не читается. Снимите ближе и ровнее или введите вручную.",
-                                )
-                            }
-                        } catch (e: ClaudeException) {
-                            state = CaptureState.Error(e.userMessage())
-                        }
-                    }
+                    labelFromJpeg(image.use { toScaledJpeg(it) })
                 }
 
                 override fun onError(exception: ImageCaptureException) {
@@ -169,6 +179,22 @@ fun CaptureScreen(
                 }
             },
         )
+    }
+
+    // Debug builds only: drive the barcode / label paths without a physical package (emulator camera).
+    LaunchedEffect(Unit) {
+        if (!app.grammovka.BuildConfig.DEBUG) return@LaunchedEffect
+        container.debugCapture.collect { cmd ->
+            cmd ?: return@collect
+            container.debugCapture.value = null
+            when {
+                cmd.startsWith("barcode:") -> { mode = CaptureMode.BARCODE; state = CaptureState.Scanning; onBarcode(cmd.removePrefix("barcode:")) }
+                cmd.startsWith("label:") -> {
+                    val f = java.io.File(context.getExternalFilesDir(null), cmd.removePrefix("label:"))
+                    labelFromJpeg(f.readBytes())
+                }
+            }
+        }
     }
 
     fun manual(code: String?) {
@@ -297,4 +323,14 @@ private fun toScaledJpeg(image: ImageProxy): ByteArray {
 }
 
 private const val MAX_EDGE = 1568
+
+/** "150 g", "0,5 l", "1 kg" → grams; null for multipacks and anything unclear. */
+internal fun packageGrams(quantity: String?): Double? {
+    val m = Regex("""^\s*(\d+(?:[.,]\d+)?)\s*(g|gr|г|ml|мл|kg|кг|l|л)(?![\p{L}])""", RegexOption.IGNORE_CASE).find(quantity ?: return null) ?: return null
+    val v = m.groupValues[1].replace(',', '.').toDouble()
+    return when (m.groupValues[2].lowercase()) {
+        "kg", "кг", "l", "л" -> v * 1000
+        else -> v
+    }.takeIf { it in 1.0..5000.0 }
+}
 

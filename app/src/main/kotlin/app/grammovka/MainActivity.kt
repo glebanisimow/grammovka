@@ -1,5 +1,6 @@
 package app.grammovka
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,8 +19,23 @@ class MainActivity : ComponentActivity() {
         (application as GrammovkaApp).container.modelHub.refreshDate()
     }
 
+    /** Debug-only test hook: `adb shell am start ... --es debug_input "творог 150"` submits text on Today. */
+    private fun handleDebugInput(intent: Intent?) {
+        if (!BuildConfig.DEBUG) return
+        val c = (application as GrammovkaApp).container
+        intent?.getStringExtra("debug_input")?.let { c.debugInput.value = it }
+        intent?.getStringExtra("debug_barcode")?.let { c.debugCapture.value = "barcode:$it" }
+        intent?.getStringExtra("debug_label")?.let { c.debugCapture.value = "label:$it" }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleDebugInput(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleDebugInput(intent)
         enableEdgeToEdge()
         val container = (application as GrammovkaApp).container
         setContent {

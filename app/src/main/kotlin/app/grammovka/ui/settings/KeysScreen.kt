@@ -39,6 +39,9 @@ import app.grammovka.data.settings.Secret
 import app.grammovka.di.AppContainer
 import app.grammovka.ui.icons.GIcons
 import app.grammovka.ui.theme.GTheme
+import app.grammovka.ui.common.input
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 
 @Composable
 fun KeysScreen(container: AppContainer, onBack: () -> Unit) {
@@ -72,6 +75,7 @@ fun KeysScreen(container: AppContainer, onBack: () -> Unit) {
             title = "USDA FoodData Central",
             hint = "Ключ api.data.gov, бесплатный. Нужен для поиска сырых продуктов в базе USDA.",
         )
+        ClaudeSettings(container)
         Text(
             "Ключи хранятся на телефоне в зашифрованном виде и не попадают в резервную копию.",
             Modifier.padding(16.dp),
@@ -158,4 +162,53 @@ internal fun describe(r: KeyCheck): Pair<Boolean, String> = when (r) {
     is KeyCheck.ServiceDown -> false to "Сервис временно недоступен (HTTP ${r.code}). Повторите позже."
     is KeyCheck.Unexpected -> false to "Сервис ответил неожиданно (HTTP ${r.code}). Повторите позже."
     is KeyCheck.Network -> false to "Нет связи с сервисом. Проверьте интернет и повторите."
+}
+
+
+/** Monthly AI limit, spend so far (from ai_call_log) and model per purpose. */
+@Composable
+private fun ClaudeSettings(container: AppContainer) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val settings by container.settingsStore.settings.collectAsStateWithLifecycle(app.grammovka.data.settings.AppSettings())
+    val spent by container.aiCostTracker.observeMonthCost().collectAsStateWithLifecycle(0.0)
+    var limit by androidx.compose.runtime.remember(settings.aiMonthlyLimitUsd) {
+        androidx.compose.runtime.mutableStateOf(settings.aiMonthlyLimitUsd.input())
+    }
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("Claude: расход и модели", style = MaterialTheme.typography.titleMedium)
+        val over = spent >= settings.aiMonthlyLimitUsd
+        Text(
+            "В этом месяце: $" + String.format(java.util.Locale.ROOT, "%.2f", spent) + " из $" + settings.aiMonthlyLimitUsd.input() +
+                if (over) ". Лимит исчерпан: AI-функции выключены до конца месяца." else ".",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (over) MaterialTheme.colorScheme.error else Color.Unspecified,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            app.grammovka.ui.common.NumberField(limit, { limit = it }, "Лимит в месяц", Modifier.weight(1f), suffix = "$")
+            OutlinedButton(
+                onClick = { limit.replace(',', '.').toDoubleOrNull()?.let { v -> scope.launch { container.settingsStore.setAiMonthlyLimit(v) } } },
+                enabled = limit.replace(',', '.').toDoubleOrNull()?.let { it >= 0 && it != settings.aiMonthlyLimitUsd } == true,
+                shape = MaterialTheme.shapes.small,
+            ) { Text("Сохранить") }
+        }
+        Text("Цены — в конфиге AiPricing, сверены с pricing на 2026-11-05.", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
+        listOf(
+            app.grammovka.domain.model.AiPurpose.PARSE to "Разбор текста",
+            app.grammovka.domain.model.AiPurpose.RESOLVE to "Поиск продукта",
+            app.grammovka.domain.model.AiPurpose.LABEL to "Фото этикетки",
+        ).forEach { (p, label) ->
+            var model by androidx.compose.runtime.remember(settings.models[p]) { androidx.compose.runtime.mutableStateOf(settings.models[p].orEmpty()) }
+            OutlinedTextField(
+                value = model, onValueChange = { model = it.trim() }, singleLine = true,
+                modifier = Modifier.fillMaxWidth(), label = { Text("Модель: $label") },
+                trailingIcon = if (model != settings.models[p] && model.isNotBlank()) ({
+                    IconButton(onClick = { scope.launch { container.settingsStore.setModel(p, model) } }) { Icon(GIcons.Check, "Сохранить модель") }
+                }) else null,
+            )
+        }
+    }
 }

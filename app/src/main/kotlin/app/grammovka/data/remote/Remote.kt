@@ -211,9 +211,15 @@ class UsdaClient(
 
         private val ENERGY_IDS = setOf(1008, 2047, 2048)
 
+        /**
+         * USDA "Carbohydrate, by difference" (1005) includes fiber; the catalog follows EU/Polish labels,
+         * where carbohydrates exclude fiber, so the energy check 4P + 4C + 9F + 2·fiber holds for both.
+         */
         private fun nutrients(v: Map<Int, Double>): Nutrients? {
             val kcal = v[1008] ?: v[2047] ?: v[2048] ?: return null
-            return Nutrients(kcal, v[1003] ?: return null, v[1004] ?: return null, v[1005] ?: return null, v[1079])
+            val fiber = v[1079]
+            val carbs = (v[1005] ?: return null) - (fiber ?: 0.0)
+            return Nutrients(kcal, v[1003] ?: return null, v[1004] ?: return null, carbs.coerceAtLeast(0.0), fiber)
         }
     }
 }

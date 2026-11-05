@@ -85,6 +85,14 @@ fun TodayScreen(
     var editEntry by remember { mutableStateOf<LogEntryEntity?>(null) }
 
     LaunchedEffect(Unit) {
+        container.debugInput.collect { text ->
+            if (text != null) {
+                container.debugInput.value = null
+                vm.submit(text, onReview) {}
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
         container.logEvents.events.collect { e ->
             val r = snackbar.showSnackbar(
                 "Записано: ${e.count} · ${Fmt.kcal(e.kcal)} ккал", actionLabel = "Отменить", duration = SnackbarDuration.Short,
@@ -131,7 +139,7 @@ fun TodayScreen(
 private fun DayHeader(date: LocalDate, shift: (Long) -> Unit) {
     val today = LocalDate.now()
     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { shift(-1) }) { Icon(GIcons.Back, "Предыдущий день") }
+        IconButton(onClick = { shift(-1) }) { Icon(GIcons.Prev, "Предыдущий день") }
         Text(
             when (date) {
                 today -> "Сегодня"

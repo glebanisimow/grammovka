@@ -61,6 +61,13 @@ class AppContainer(context: Context) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val modelHub by lazy { ModelHub(appScope, settingsStore, logRepository, weightRepository, modelRepository) }
     val reviewInbox = ReviewInbox()
+    val backupService by lazy { app.grammovka.data.backup.BackupService(database, settingsStore) }
+
+    /** Debug builds only: text injected by adb for end-to-end checks. */
+    val debugInput = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+    /** Debug builds only: "barcode:<code>" as if ML Kit read it, or "label:<file in app files dir>". */
+    val debugCapture = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
     val remoteCache by lazy { RemoteCache(database.remoteCacheDao()) }
     val offClient by lazy { OffClient(httpClient, remoteCache, "Grammovka/${BuildConfig.VERSION_NAME} (github.com/glebanisimow/grammovka)") }

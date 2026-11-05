@@ -22,9 +22,9 @@ import app.grammovka.domain.parse.Grams
 import app.grammovka.ui.catalog.FoodFormState
 import app.grammovka.ui.common.input
 import app.grammovka.ui.common.toDecimal
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -54,6 +54,14 @@ sealed class ReviewItem(val fragment: Fragment) {
     class Unresolved(fragment: Fragment, val candidates: List<CatalogFood>) : ReviewItem(fragment)
 }
 
+/** Adds the user's own wording as a synonym so the same input matches exactly next time. */
+private fun FoodDraft.withAlias(words: String): FoodDraft {
+    val w = words.trim()
+    if (w.isEmpty() || app.grammovka.domain.text.Normalize.text(w) == app.grammovka.domain.text.Normalize.text(name)) return this
+    if (aliases.any { app.grammovka.domain.text.Normalize.text(it) == app.grammovka.domain.text.Normalize.text(w) }) return this
+    return copy(aliases = aliases + w)
+}
+
 /** A plan or drafts handed from Today / scanner to the confirm screen. */
 data class ReviewRequest(
     val date: LocalDate,
@@ -69,12 +77,15 @@ class ReviewInbox {
 
 data class LoggedEvent(val ids: List<Long>, val count: Int, val kcal: Double)
 
-/** Global "logged, tap to undo" events shown as a snackbar on Today. */
+/**
+ * Global "logged, tap to undo" events shown as a snackbar on Today. A buffered channel keeps the event
+ * while the confirm screen closes and Today starts collecting.
+ */
 class LogEvents {
-    private val flow = MutableSharedFlow<LoggedEvent>(extraBufferCapacity = 4)
-    val events: SharedFlow<LoggedEvent> = flow.asSharedFlow()
+    private val channel = Channel<LoggedEvent>(Channel.BUFFERED)
+    val events: Flow<LoggedEvent> = channel.receiveAsFlow()
     fun emit(e: LoggedEvent) {
-        flow.tryEmit(e)
+        channel.trySend(e)
     }
 }
 
@@ -165,7 +176,10 @@ class ReviewViewModel(
     private fun fromPlan(p: PlanItem): ReviewItem = when (p) {
         is PlanItem.Ready -> ReviewItem.Matched(p.fragment, listOf(p.food), p.food).also { it.grams = p.grams.input() }
         is PlanItem.NeedsGrams -> ReviewItem.Matched(p.fragment, listOf(p.food), p.food)
-        is PlanItem.Ambiguous -> ReviewItem.Matched(p.fragment, p.candidates, null)
+        is PlanItem.Ambiguous -> {
+            val only = p.candidates.singleOrNull()
+            ReviewItem.Matched(p.fragment, p.candidates, only).also { m -> if (only != null) viewModelScope.launch { fillGrams(m, only) } }
+        }
         is PlanItem.Unknown -> ReviewItem.Unresolved(p.fragment, p.candidates)
     }
 
@@ -184,7 +198,7 @@ class ReviewViewModel(
     fun manual(item: ReviewItem.Unresolved) {
         val draft = FoodDraft(name = item.fragment.name, per100 = Nutrients(0.0, 0.0, 0.0, 0.0), source = app.grammovka.domain.model.FoodSource.MANUAL)
         val n = ReviewItem.NewFood(item.fragment, FoodFormState(draft).apply { kcal = ""; protein = ""; fat = ""; carbs = "" })
-        n.grams = item.grams
+        n.grams = (GramResolver.resolve(item.fragment, emptyList()) as? Grams.Known)?.grams?.input() ?: item.grams
         replace(item, n)
     }
 
@@ -247,9 +261,13 @@ class ReviewViewModel(
             val entries = items.map { item ->
                 val grams = item.grams.toDecimal()!!
                 when (item) {
-                    is ReviewItem.Matched -> NewEntry(item.selected!!.id, item.selected!!.displayName, grams, item.selected!!.per100, method)
+                    is ReviewItem.Matched -> {
+                        // The user picked this food for their own words: remember them as a synonym.
+                        if (item.candidates.size > 1 || method == InputMethod.TEXT) foods.learnAlias(item.selected!!.id, item.fragment.name)
+                        NewEntry(item.selected!!.id, item.selected!!.displayName, grams, item.selected!!.per100, method)
+                    }
                     is ReviewItem.NewFood -> {
-                        val d = item.form.toDraft()!!
+                        val d = item.form.toDraft()!!.withAlias(item.fragment.name)
                         val id = if (item.save) foods.create(d) else null
                         NewEntry(id, listOfNotNull(d.name, d.brand).joinToString(", "), grams, d.per100, method)
                     }

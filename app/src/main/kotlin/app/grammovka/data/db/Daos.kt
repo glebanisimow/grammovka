@@ -91,6 +91,9 @@ interface LogDao {
     fun observeChecksum(): Flow<String>
 
     @Query("SELECT MIN(date) FROM log_entry") suspend fun firstDate(): LocalDate?
+
+    @Query("SELECT grams FROM log_entry WHERE foodId = :foodId ORDER BY date DESC, time DESC, id DESC LIMIT 1")
+    suspend fun lastGrams(foodId: Long): Double?
 }
 
 @Dao

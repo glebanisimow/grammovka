@@ -42,12 +42,14 @@ fun ReviewScreen(
     vm: ReviewViewModel,
     onBack: () -> Unit,
     extraActions: @Composable (ReviewItem.Unresolved) -> Unit = {},
+    status: @Composable () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(GIcons.Back, contentDescription = "Назад") }
             Text("Проверьте и запишите", style = MaterialTheme.typography.headlineSmall)
         }
+        status()
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

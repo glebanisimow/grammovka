@@ -59,6 +59,22 @@ class FoodRepository(private val dao: FoodDao, private val clock: () -> Long = S
 
     suspend fun setArchived(id: Long, archived: Boolean) = dao.setArchived(id, archived, clock())
 
+    /** Adds [words] as a synonym unless the name or an alias already normalizes to the same text. */
+    suspend fun learnAlias(id: Long, words: String) {
+        val f = dao.byId(id) ?: return
+        val w = words.trim()
+        val n = Normalize.text(w)
+        if (n.isEmpty() || n == Normalize.text(f.name) || aliasesOf(f.aliases).any { Normalize.text(it) == n }) return
+        val aliases = aliasesOf(f.aliases) + w
+        dao.update(
+            f.copy(
+                aliases = aliases.joinToString("\n"),
+                searchText = Normalize.searchText(listOfNotNull(f.name, f.brand).joinToString(" "), aliases),
+                updatedAt = clock(),
+            ),
+        )
+    }
+
     suspend fun draftOf(id: Long): FoodDraft? {
         val f = dao.byId(id) ?: return null
         return FoodDraft(

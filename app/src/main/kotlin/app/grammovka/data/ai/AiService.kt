@@ -142,6 +142,7 @@ class AiService(
         )
         val seenUsda = mutableMapOf<Long, Nutrients>()
         val seenOff = mutableMapOf<String, Nutrients>()
+        val offBrands = mutableMapOf<String, String>()
         var total = Usage()
         val model = settings.current().models.getValue(AiPurpose.RESOLVE)
         try {
@@ -158,12 +159,12 @@ class AiService(
                 val toolUses = resp.content.map { it.jsonObject }.filter { it.s("type") == "tool_use" }
                 toolUses.firstOrNull { it.s("name") == "propose_foods" }?.let { final ->
                     costs.record(AiPurpose.RESOLVE, model, Prompts.RESOLVE_VERSION, total, ok = true)
-                    return proposals(final["input"]!!.jsonObject, seenUsda, seenOff)
+                    return proposals(final["input"]!!.jsonObject, seenUsda, seenOff, offBrands)
                 }
                 when (resp.stopReason) {
                     "pause_turn" -> return@repeat // send the paused turn back unchanged
                     "tool_use" -> {
-                        val results = toolUses.map { tu -> toolResult(tu, seenUsda, seenOff) }
+                        val results = toolUses.map { tu -> toolResult(tu, seenUsda, seenOff, offBrands) }
                         messages += buildJsonObject { put("role", "user"); put("content", JsonArray(results)) }
                     }
                     else -> {
@@ -181,7 +182,12 @@ class AiService(
         }
     }
 
-    private suspend fun toolResult(tu: JsonObject, seenUsda: MutableMap<Long, Nutrients>, seenOff: MutableMap<String, Nutrients>): JsonObject {
+    private suspend fun toolResult(
+        tu: JsonObject,
+        seenUsda: MutableMap<Long, Nutrients>,
+        seenOff: MutableMap<String, Nutrients>,
+        offBrands: MutableMap<String, String>,
+    ): JsonObject {
         val id = tu.s("id")!!
         val input = tu["input"]?.jsonObject ?: JsonObject(emptyMap())
         val (content, isError) = try {
@@ -199,12 +205,13 @@ class AiService(
                 }
                 "off_search" -> {
                     val hits = off.search(input.s("query").orEmpty())
-                    hits.forEach { h -> h.per100?.let { seenOff[h.code] = it } }
+                    hits.forEach { h -> h.per100?.let { seenOff[h.code] = it }; h.brand?.let { offBrands[h.code] = it } }
                     buildJsonArray { hits.forEach { h -> addJsonObject { put("barcode", h.code); put("name", h.name); put("brand", h.brand); put("quantity", h.quantity); put("per100g", nut(h.per100)) } } }.toString() to false
                 }
                 "off_product" -> {
                     val p = off.product(input.s("barcode").orEmpty())
                     p?.per100?.let { seenOff[p.code] = it }
+                    p?.brand?.let { offBrands[p.code] = it }
                     (p?.let { buildJsonObject { put("barcode", it.code); put("name", it.name); put("brand", it.brand); put("per100g", nut(it.per100)) } }?.toString() ?: "not found") to false
                 }
                 else -> "unknown tool" to true
@@ -223,7 +230,12 @@ class AiService(
      * responses when available, not from the model's transcription; a WEB proposal without a URL and any
      * HIGH-confidence estimate are downgraded.
      */
-    private fun proposals(input: JsonObject, seenUsda: Map<Long, Nutrients>, seenOff: Map<String, Nutrients>): List<Proposal> =
+    private fun proposals(
+        input: JsonObject,
+        seenUsda: Map<Long, Nutrients>,
+        seenOff: Map<String, Nutrients>,
+        offBrands: Map<String, String>,
+    ): List<Proposal> =
         input["foods"]!!.jsonArray.map { e ->
             val o = e.jsonObject
             var source = runCatching { FoodSource.valueOf(o.s("source")!!) }.getOrDefault(FoodSource.CLAUDE_ESTIMATE)
@@ -261,6 +273,7 @@ class AiService(
                 request = o.s("request").orEmpty(),
                 draft = FoodDraft(
                     name = o.s("nameRu").orEmpty(), per100 = per100,
+                    brand = if (source == FoodSource.OFF) ref?.let(offBrands::get) else null,
                     basis = runCatching { FoodBasis.valueOf(o.s("basis")!!) }.getOrDefault(FoodBasis.AS_SOLD),
                     source = source, sourceRef = ref, confidence = confidence,
                     barcode = if (source == FoodSource.OFF) ref else null,

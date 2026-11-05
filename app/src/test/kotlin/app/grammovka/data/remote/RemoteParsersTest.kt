@@ -59,6 +59,7 @@ class RemoteParsersTest {
         val detail = UsdaClient.parseFood(fixture("usda_food_168177.json"))!!
         assertNotNull(detail.per100)
         assertEquals(42.0, detail.per100!!.kcal, 1e-9)
-        assertEquals(10.65, detail.per100!!.carbs, 1e-9)
+        // 10.65 g carbs by difference minus 3.6 g fiber (EU convention)
+        assertEquals(7.05, detail.per100!!.carbs, 1e-9)
     }
 }
