@@ -55,7 +55,7 @@ fun ReviewScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             vm.items.forEach { item ->
-                key(item) {
+                androidx.compose.runtime.key(item) {
                     ItemCard(vm, item, extraActions)
                 }
             }
@@ -74,9 +74,6 @@ fun ReviewScreen(
         }
     }
 }
-
-@Composable
-private fun key(k: Any, content: @Composable () -> Unit) = androidx.compose.runtime.key(k) { content() }
 
 @Composable
 private fun ItemCard(vm: ReviewViewModel, item: ReviewItem, extraActions: @Composable (ReviewItem.Unresolved) -> Unit) {

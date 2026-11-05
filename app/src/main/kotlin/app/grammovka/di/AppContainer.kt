@@ -22,6 +22,7 @@ import app.grammovka.ui.review.ReviewInbox
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import app.grammovka.data.repo.ModelRepository
 import app.grammovka.data.repo.WeightRepository
 import app.grammovka.domain.log.QuickLogPlanner
@@ -61,6 +62,14 @@ class AppContainer(context: Context) {
 
     /** Widget buttons: GrammovkaWidget.ACTION_ADD / ACTION_SCAN, consumed by AppRoot and Today. */
     val widgetAction = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val healthRepository by lazy { app.grammovka.data.health.HealthRepository(appContext, database) }
+
+    /** Imports Health Connect weights when the user connected it; errors are ignored (next open retries). */
+    fun syncHealth() {
+        appScope.launch {
+            if (settingsStore.current().healthConnect) runCatching { healthRepository.syncWeights() }
+        }
+    }
     val recipeRepository by lazy { app.grammovka.data.repo.RecipeRepository(database, foodRepository) }
     val weightRepository by lazy { WeightRepository(database) }
     val modelRepository by lazy { ModelRepository(database, logRepository) }

@@ -108,7 +108,7 @@ class ReviewViewModel(
     }
 
     /** Lines deferred until the network is back during this review. */
-    var deferred by mutableStateOf(0)
+    var deferred by androidx.compose.runtime.mutableIntStateOf(0)
         private set
     val date: LocalDate = request?.date ?: LocalDate.now()
     private val method = request?.method ?: InputMethod.TEXT

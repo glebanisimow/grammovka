@@ -17,6 +17,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         (application as GrammovkaApp).container.modelHub.refreshDate()
+        (application as GrammovkaApp).container.syncHealth()
     }
 
     /** Debug-only test hook: `adb shell am start ... --es debug_input "творог 150"` submits text on Today. */

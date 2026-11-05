@@ -63,6 +63,8 @@ data class ReminderSettings(
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val reminder: ReminderSettings = ReminderSettings(),
+    /** Health Connect connected by the user: weights are synced when the app opens. */
+    val healthConnect: Boolean = false,
     val aiMonthlyLimitUsd: Double = 5.0,
     val profile: ProfileSettings = ProfileSettings(),
     val models: Map<AiPurpose, String> = AiPurpose.entries.associateWith(AiDefaults::model),
@@ -79,6 +81,7 @@ class SettingsStore(private val context: Context) {
         val rate = doublePreferencesKey("profile_rate_pct")
         val protein = doublePreferencesKey("profile_protein_per_kg")
         val budgetMode = stringPreferencesKey("profile_budget_mode")
+        val healthConnect = booleanPreferencesKey("health_connect")
         val reminderOn = booleanPreferencesKey("reminder_enabled")
         val reminderMinute = intPreferencesKey("reminder_minute")
         val reminderOffered = booleanPreferencesKey("reminder_offered")
@@ -91,6 +94,7 @@ class SettingsStore(private val context: Context) {
         AppSettings(
             themeMode = p[K.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: d.themeMode,
             aiMonthlyLimitUsd = p[K.aiLimit] ?: d.aiMonthlyLimitUsd,
+            healthConnect = p[K.healthConnect] ?: false,
             reminder = ReminderSettings(
                 enabled = p[K.reminderOn] ?: false,
                 minuteOfDay = p[K.reminderMinute] ?: d.reminder.minuteOfDay,
@@ -113,6 +117,10 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.settingsDataStore.edit { it[K.theme] = mode.name }
+    }
+
+    suspend fun setHealthConnect(on: Boolean) {
+        context.settingsDataStore.edit { it[K.healthConnect] = on }
     }
 
     suspend fun setReminder(r: ReminderSettings) {

@@ -16,6 +16,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
@@ -50,6 +51,12 @@ fun ProgressScreen(container: AppContainer) {
     val accent = GTheme.extra.accentText
     val neutral = GTheme.extra.chartNeutral
     val snaps = state?.snapshots.orEmpty()
+    val settings by container.settingsStore.settings.collectAsStateWithLifecycle(app.grammovka.data.settings.AppSettings())
+    val activity by produceState<Pair<Map<LocalDate, Long>, List<app.grammovka.data.health.Workout>>?>(null, settings.healthConnect, range) {
+        value = if (!settings.healthConnect) null else runCatching {
+            container.healthRepository.steps(from, today) to container.healthRepository.workouts(from, today)
+        }.getOrNull()
+    }
     val days = state?.days.orEmpty()
 
     LazyColumn(Modifier.fillMaxSize()) {
@@ -106,6 +113,25 @@ fun ProgressScreen(container: AppContainer) {
             )
         }
         item { Note("Бледные столбцы — дни, отмеченные как записанные не полностью: модель их не учитывает.") }
+
+        activity?.let { (steps, workouts) ->
+            item { SectionLabel("Активность · Health Connect") }
+            item {
+                TimeChart(
+                    from, today,
+                    listOf(ChartSeries("шаги", neutral, MarkStyle.BARS, steps.mapValues { it.value.toDouble() })),
+                    format = { Fmt.kcal(it) },
+                    zeroBased = true,
+                )
+            }
+            item { Note("Шаги и тренировки только для информации: расход считается по весу и съеденному.") }
+            if (workouts.isEmpty()) {
+                item { Note("Тренировок за период нет.") }
+            }
+            items(workouts.take(30), key = { "w" + it.date + it.title + it.minutes }) { w ->
+                Line(w.date.format(weekFmt), "${w.minutes} мин", w.title)
+            }
+        }
 
         item { SectionLabel("По неделям") }
         item { WeekHeader() }

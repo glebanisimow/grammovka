@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Android 13+: asked when the user turns on the morning question or defers items. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Health Connect, read only: weight import, steps and workouts for analytics. -->
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- In-app updates from the public GitHub release (Настройки → Обновление). -->
@@ -17,6 +21,7 @@
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
+        <package android:name="com.google.android.apps.healthdata" />
     </queries>
 
     <application
@@ -40,6 +45,24 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ui.health.HealthPrivacyActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".ui.health.HealthPrivacyActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
 
         <receiver
             android:name=".widget.GrammovkaWidgetReceiver"
