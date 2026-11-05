@@ -83,6 +83,19 @@ fun AppRoot(container: AppContainer) {
             nav.navigate(ReviewRoute)
         }
     }
+    val widgetAction by container.widgetAction.collectAsStateWithLifecycle()
+    LaunchedEffect(widgetAction) {
+        when (widgetAction) {
+            app.grammovka.widget.GrammovkaWidget.ACTION_SCAN -> {
+                container.widgetAction.value = null
+                nav.navigate(CaptureRoute(LocalDate.now().toString(), CaptureMode.BARCODE.name))
+            }
+            app.grammovka.widget.GrammovkaWidget.ACTION_ADD -> {
+                // Today consumes it (focus + keyboard); make sure Today is on screen.
+                nav.navigate(TodayRoute) { popUpTo(nav.graph.findStartDestination().id); launchSingleTop = true }
+            }
+        }
+    }
     val openPendingSignal by container.openPending.collectAsStateWithLifecycle()
     LaunchedEffect(openPendingSignal) {
         if (openPendingSignal) {

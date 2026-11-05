@@ -52,6 +52,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.grammovka.data.db.LogEntryEntity
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -164,6 +167,7 @@ fun TodayScreen(
             }
             InputBar(
                 busy,
+                focusSignal = container.widgetAction,
                 onSubmit = { text, method, clear -> vm.submit(text, { r -> clear(); onReview(r) }, method) { clear() } },
                 onScan = { onScan(ui.date) }, onLabel = { onLabel(ui.date) },
                 onMessage = { msg -> scope.launch { snackbar.showSnackbar(msg, duration = SnackbarDuration.Short) } },
@@ -425,6 +429,7 @@ private fun EntryRow(e: LogEntryEntity, onClick: () -> Unit) {
 @Composable
 private fun InputBar(
     busy: Boolean,
+    focusSignal: kotlinx.coroutines.flow.MutableStateFlow<String?>,
     onSubmit: (String, InputMethod, () -> Unit) -> Unit,
     onScan: () -> Unit,
     onLabel: () -> Unit,
@@ -433,6 +438,16 @@ private fun InputBar(
     var text by rememberSaveable { mutableStateOf("") }
     val send = { if (text.isNotBlank()) onSubmit(text, InputMethod.TEXT) { text = "" } }
     val voice = rememberVoiceController()
+    val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val signal by focusSignal.collectAsStateWithLifecycle()
+    LaunchedEffect(signal) {
+        if (signal == app.grammovka.widget.GrammovkaWidget.ACTION_ADD) {
+            focusSignal.value = null
+            focus.requestFocus()
+            keyboard?.show()
+        }
+    }
     val context = LocalContext.current
     val listen = {
         voice.start(
@@ -460,7 +475,7 @@ private fun InputBar(
     ) {
         OutlinedTextField(
             value = if (voice.listening) voice.partial else text, onValueChange = { text = it },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).focusRequester(focus),
             placeholder = { Text(if (voice.listening) "Говорите: «творог 150 и банан»" else "творог 150, кофе с молоком…") },
             maxLines = 3,
             enabled = !busy && !voice.listening,

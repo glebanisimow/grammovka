@@ -58,6 +58,9 @@ class AppContainer(context: Context) {
 
     /** Set by a «сеть появилась» notification tap; AppRoot opens the review of deferred items. */
     val openPending = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    /** Widget buttons: GrammovkaWidget.ACTION_ADD / ACTION_SCAN, consumed by AppRoot and Today. */
+    val widgetAction = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val recipeRepository by lazy { app.grammovka.data.repo.RecipeRepository(database, foodRepository) }
     val weightRepository by lazy { WeightRepository(database) }
     val modelRepository by lazy { ModelRepository(database, logRepository) }

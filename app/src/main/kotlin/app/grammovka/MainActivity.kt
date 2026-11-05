@@ -29,6 +29,13 @@ class MainActivity : ComponentActivity() {
         intent?.getStringExtra("debug_label")?.let { c.debugCapture.value = "label:$it" }
     }
 
+    private fun handleWidget(intent: Intent?) {
+        intent?.getStringExtra(app.grammovka.widget.GrammovkaWidget.EXTRA_ACTION)?.let {
+            (application as GrammovkaApp).container.widgetAction.value = it
+            intent.removeExtra(app.grammovka.widget.GrammovkaWidget.EXTRA_ACTION)
+        }
+    }
+
     private fun handleOpenPending(intent: Intent?) {
         if (intent?.getBooleanExtra(app.grammovka.notify.Notifications.EXTRA_OPEN_PENDING, false) == true) {
             (application as GrammovkaApp).container.openPending.value = true
@@ -39,12 +46,14 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         handleDebugInput(intent)
         handleOpenPending(intent)
+        handleWidget(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleDebugInput(intent)
         handleOpenPending(intent)
+        handleWidget(intent)
         enableEdgeToEdge()
         val container = (application as GrammovkaApp).container
         setContent {
