@@ -91,6 +91,8 @@ class ActivityDraft(
     choice: KcalChoice = KcalChoice.FORMULA,
     manual: String = "",
     val description: String = "",
+    /** Net kcal Claude gave when the record was saved; shown again when editing it. */
+    private val storedClaudeNet: Double? = null,
 ) {
     var type by mutableStateOf(type)
     var title by mutableStateOf(title)
@@ -111,7 +113,7 @@ class ActivityDraft(
     fun formula(body: Body?): ActivityEstimate? = body?.let { b -> input()?.let { ActivityMath.estimate(it, b) } }
 
     fun claudeNet(body: Body?): Double? {
-        val g = claudeGross ?: return null
+        val g = claudeGross ?: return storedClaudeNet
         val m = minutes.toDecimal() ?: return null
         // Without a profile there is no BMR: take rest out at ~1 kcal/kg/h for 75 kg (rough, shown as Claude's anyway).
         return ActivityMath.net(g, m, body?.bmrKcal ?: (75.0 * 24))
@@ -151,8 +153,13 @@ class ActivityDraft(
         fun from(e: ActivityEntryEntity) = ActivityDraft(
             id = e.id, type = e.type, title = e.note.orEmpty(), minutes = e.minutes.input(), distance = e.distanceKm?.input().orEmpty(),
             hr = e.avgHr?.toString().orEmpty(), intensity = e.intensity,
-            choice = if (e.source == ActivitySource.FORMULA) KcalChoice.FORMULA else KcalChoice.MANUAL,
-            manual = if (e.source == ActivitySource.FORMULA) "" else Fmt.kcal(e.kcal), description = e.description,
+            choice = when (e.source) {
+                ActivitySource.FORMULA -> KcalChoice.FORMULA
+                ActivitySource.CLAUDE_ESTIMATE -> if (e.claudeKcal != null) KcalChoice.CLAUDE else KcalChoice.MANUAL
+                ActivitySource.MANUAL -> KcalChoice.MANUAL
+            },
+            manual = if (e.source == ActivitySource.MANUAL) Fmt.kcal(e.kcal) else "", description = e.description,
+            storedClaudeNet = e.claudeKcal,
         )
     }
 }
@@ -171,8 +178,8 @@ fun ActivitySheet(
     onSave: (List<ActivityDraft>) -> Unit,
     onDelete: (ActivityEntryEntity) -> Unit,
 ) {
-    val drafts = remember { mutableStateListOf<ActivityDraft>().apply { add(editing?.let(ActivityDraft::from) ?: ActivityDraft()) } }
-    var text by remember { mutableStateOf(initialText.orEmpty()) }
+    val drafts = remember { mutableStateListOf<ActivityDraft>().apply { add(editing?.let(ActivityDraft::from) ?: ActivityDraft(choice = defaultChoice(body))) } }
+    var text by remember { mutableStateOf(initialText ?: editing?.description.orEmpty()) }
     var status by remember { mutableStateOf<String?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
@@ -276,7 +283,7 @@ fun ActivitySheet(
                         DraftCard(d, body, removable = drafts.size > 1 && editing == null, onRemove = { drafts.removeAt(i) })
                     }
                     if (editing == null) {
-                        TextButton(onClick = { drafts += ActivityDraft() }) {
+                        TextButton(onClick = { drafts += ActivityDraft(choice = defaultChoice(body)) }) {
                             Icon(GIcons.Plus, null, Modifier.size(16.dp)); Spacer(Modifier.width(8.dp)); Text("Ещё тренировка")
                         }
                     }
@@ -325,14 +332,15 @@ private fun DraftCard(d: ActivityDraft, body: Body?, removable: Boolean, onRemov
         val f = d.formula(body)
         ChoiceRow(
             selected = d.choice == KcalChoice.FORMULA, enabled = f != null, onClick = { d.choice = KcalChoice.FORMULA },
-            title = f?.let { "По формуле: ${Fmt.kcal(it.netKcal)} ккал" } ?: "По формуле: нужны минуты" + if (body == null) " и профиль" else "",
+            title = f?.let { "По формуле: ${Fmt.kcal(it.netKcal)} ккал" }
+                ?: if (body == null) "По формуле: нужны профиль и вес" else "По формуле: укажите минуты",
             subtitle = f?.let { describe(it, d) },
         )
         val c = d.claudeNet(body)
-        if (d.claudeGross != null) {
+        if (d.claudeGross != null || c != null) {
             ChoiceRow(
                 selected = d.choice == KcalChoice.CLAUDE, enabled = c != null, onClick = { d.choice = KcalChoice.CLAUDE },
-                title = c?.let { "Claude: ${Fmt.kcal(it)} ккал" } ?: "Claude: нужны минуты",
+                title = c?.let { "Claude: ${Fmt.kcal(it)} ккал" } ?: "Claude: укажите минуты",
                 subtitle = listOfNotNull(
                     "оценка Claude" + (d.claudeConfidence?.let { ", уверенность ${it.label()}" } ?: ""),
                     d.claudeReasoning.takeIf { it.isNotBlank() },
@@ -370,6 +378,9 @@ private fun describe(e: ActivityEstimate, d: ActivityDraft): String {
         EstimateMethod.MET -> "MET ${e.met?.let { "%.1f".format(it).replace('.', ',') }}$speed"
     } + " · всего ${Fmt.kcal(e.grossKcal)}, сверх покоя ${Fmt.kcal(e.netKcal)}"
 }
+
+/** Without a profile there is no formula: start on the manual field. */
+private fun defaultChoice(body: Body?) = if (body == null) KcalChoice.MANUAL else KcalChoice.FORMULA
 
 /** One line in the day's workout card. */
 fun ActivityEntryEntity.summary(): String = buildList {
