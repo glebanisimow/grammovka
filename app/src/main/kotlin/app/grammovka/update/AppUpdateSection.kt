@@ -146,6 +146,6 @@ private fun UpdateProblem.message(): String = when (this) {
     UpdateProblem.INVALID_APK -> "Файл обновления не прошёл проверку подписи или контрольной суммы и не будет установлен. Проверьте снова позже."
     UpdateProblem.INCOMPATIBLE -> "Новая версия требует более новый Android."
     UpdateProblem.STORAGE -> "Не хватает места на телефоне. Освободите 50 МБ и повторите."
-    UpdateProblem.INSTALL_PERMISSION -> "Нужно разрешение «Установка неизвестных приложений» для Граммовки. Включите его и нажмите «Установить»."
+    UpdateProblem.INSTALL_PERMISSION -> "Нужно разрешение «Установка неизвестных приложений» для Protoptera eat. Включите его и нажмите «Установить»."
     UpdateProblem.INSTALL_FAILED -> "Системный установщик не открылся. Нажмите «Установить» ещё раз."
 }

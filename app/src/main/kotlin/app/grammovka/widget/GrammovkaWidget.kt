@@ -77,7 +77,7 @@ class GrammovkaWidget : GlanceAppWidget() {
             GlanceModifier.fillMaxSize().background(bg).cornerRadius(6.dp).padding(12.dp).clickable(open(null)),
         ) {
             if (d.remaining == null) {
-                Text("Граммовка", style = TextStyle(color = muted, fontSize = 12.sp))
+                Text("Protoptera eat", style = TextStyle(color = muted, fontSize = 12.sp))
                 Text("Съедено ${Fmt.kcal(d.eatenKcal)} ккал", style = TextStyle(color = text, fontSize = 20.sp, fontWeight = FontWeight.Bold))
                 Text("Бюджет появится после профиля и взвешивания", style = TextStyle(color = muted, fontSize = 12.sp))
             } else {

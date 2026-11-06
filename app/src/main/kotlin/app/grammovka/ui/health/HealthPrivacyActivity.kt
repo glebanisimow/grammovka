@@ -34,7 +34,7 @@ class HealthPrivacyActivity : ComponentActivity() {
                         Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text("Граммовка и Health Connect", style = MaterialTheme.typography.headlineSmall)
+                        Text("Protoptera eat и Health Connect", style = MaterialTheme.typography.headlineSmall)
                         Text(TEXT, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
@@ -43,7 +43,7 @@ class HealthPrivacyActivity : ComponentActivity() {
     }
 
     private companion object {
-        const val TEXT = "Граммовка только читает из Health Connect:\n\n" +
+        const val TEXT = "Protoptera eat только читает из Health Connect:\n\n" +
             "• вес — записывается в журнал взвешиваний за дни, где нет веса, введённого вручную;\n" +
             "• шаги и тренировки — показываются на экране «Прогресс» и не влияют на расчёт расхода.\n\n" +
             "Данные хранятся только на телефоне. У приложения нет сервера, и данные Health Connect никуда не отправляются, " +

@@ -1,4 +1,4 @@
-# Граммовка
+# Protoptera eat (бывш. Граммовка)
 
 Personal Android calorie tracker: Kotlin, Jetpack Compose, Room. Fully local; Claude, Open Food Facts and USDA are optional add-ons with keys entered in the app.
 

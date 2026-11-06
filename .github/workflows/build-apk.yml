@@ -79,7 +79,7 @@ jobs:
           if ! gh release view android >/dev/null 2>&1; then
             gh release create android --target "$GITHUB_SHA" --prerelease --latest=false \
               --title "Android · последняя сборка" \
-              --notes "Подписанная сборка Граммовки. Первая установка: скачайте grammovka-latest.apk. Дальше обновления ставятся из приложения: Настройки → Обновление. Данные сохраняются."
+              --notes "Подписанная сборка Protoptera eat. Первая установка: скачайте grammovka-latest.apk. Дальше обновления ставятся из приложения: Настройки → Обновление. Данные сохраняются."
           fi
           # Keep versioned APKs: an app that already read the previous manifest must still be able to download it.
           gh release upload android "$APK" --clobber
