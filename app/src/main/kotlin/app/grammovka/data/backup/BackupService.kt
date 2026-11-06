@@ -44,6 +44,13 @@ data class FoodDto(
 @Serializable data class PortionDto(val name: String, val grams: Double)
 
 @Serializable
+data class ActivityDto(
+    val date: String, val time: String, val type: String, val minutes: Double, val distanceKm: Double? = null,
+    val avgHr: Int? = null, val intensity: String? = null, val description: String = "", val kcal: Double,
+    val source: String, val formulaKcal: Double? = null, val claudeKcal: Double? = null, val note: String? = null, val createdAt: Long = 0,
+)
+
+@Serializable
 data class EntryDto(
     val date: String, val time: String, val foodId: Long? = null, val foodName: String, val grams: Double,
     val kcal: Double, val protein: Double, val fat: Double, val carbs: Double, val inputMethod: String, val note: String? = null,
@@ -67,7 +74,7 @@ data class SettingsDto(
 @Serializable
 data class BackupDto(
     val format: String = FORMAT,
-    val version: Int = 2,
+    val version: Int = 3,
     val exportedAt: Long,
     val foods: List<FoodDto>,
     val entries: List<EntryDto>,
@@ -76,6 +83,7 @@ data class BackupDto(
     val settings: SettingsDto,
     val recipes: List<RecipeDto> = emptyList(),
     val templates: List<TemplateDto> = emptyList(),
+    val activities: List<ActivityDto> = emptyList(),
 ) {
     companion object {
         const val FORMAT = "grammovka-backup"
@@ -114,6 +122,12 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
             dayStatus = db.dayStatusDao().all().map { DayStatusDto(it.date.toString(), it.incomplete, it.note) },
             weights = db.weightDao().all().map { WeightDto(it.date.toString(), it.kg, it.source.name) },
             settings = s.toDto(),
+            activities = db.activityDao().all().map {
+                ActivityDto(
+                    it.date.toString(), it.time.toString(), it.type.name, it.minutes, it.distanceKm, it.avgHr, it.intensity?.name,
+                    it.description, it.kcal, it.source.name, it.formulaKcal, it.claudeKcal, it.note, it.createdAt,
+                )
+            },
             recipes = db.recipeDao().allItems().groupBy { it.recipeId }.let { items ->
                 db.recipeDao().all().map { r -> RecipeDto(r.id, r.name, r.cookedWeightG, r.foodId, items[r.id].orEmpty().map { LineDto(it.foodId, it.grams) }) }
             },
@@ -162,6 +176,18 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
                 db.templateDao().insert(MealTemplateEntity(t.id, t.name, t.createdAt))
                 if (t.items.isNotEmpty()) db.templateDao().insertItems(t.items.map { MealTemplateItemEntity(templateId = t.id, foodId = it.foodId, grams = it.grams) })
             }
+            db.activityDao().insertAll(
+                dto.activities.map {
+                    app.grammovka.data.db.ActivityEntryEntity(
+                        date = LocalDate.parse(it.date), time = LocalTime.parse(it.time),
+                        type = app.grammovka.domain.activity.ActivityType.valueOf(it.type), minutes = it.minutes,
+                        distanceKm = it.distanceKm, avgHr = it.avgHr,
+                        intensity = it.intensity?.let { i -> runCatching { app.grammovka.domain.activity.Intensity.valueOf(i) }.getOrNull() },
+                        description = it.description, kcal = it.kcal, source = app.grammovka.domain.activity.ActivitySource.valueOf(it.source),
+                        formulaKcal = it.formulaKcal, claudeKcal = it.claudeKcal, note = it.note, createdAt = it.createdAt,
+                    )
+                },
+            )
             dto.weights.forEach { db.weightDao().upsert(WeightEntryEntity(LocalDate.parse(it.date), it.kg, WeightSource.valueOf(it.source))) }
         }
         val st = dto.settings
@@ -195,16 +221,17 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
         val statuses = db.dayStatusDao().all().associateBy { it.date }
         val weights = db.weightDao().all().associateBy { it.date }
         val snaps = db.snapshotDao().all().associateBy { it.date }
-        val days = (totals.keys + weights.keys + snaps.keys + statuses.keys).sorted()
+        val workouts = db.activityDao().totals(FIRST_DAY, LAST_DAY).associate { it.date to it.kcal }
+        val days = (totals.keys + weights.keys + snaps.keys + statuses.keys + workouts.keys).sorted()
         out.bufferedWriter(Charsets.UTF_8).use { w ->
-            w.write("date,kcal,protein,fat,carbs,entries,incomplete,weight_kg,trend_kg,tdee,target\n")
+            w.write("date,kcal,protein,fat,carbs,entries,incomplete,weight_kg,trend_kg,tdee,target,workout_kcal\n")
             days.forEach { d ->
                 val t = totals[d]
                 val s = snaps[d]
                 w.write(
                     listOf(
                         d, n(t?.kcal), n(t?.protein), n(t?.fat), n(t?.carbs), t?.entries ?: 0, statuses[d]?.incomplete == true,
-                        n(weights[d]?.kg), n(s?.trendWeight), n(s?.tdee), n(s?.target),
+                        n(weights[d]?.kg), n(s?.trendWeight), n(s?.tdee), n(s?.target), n(workouts[d]),
                     ).joinToString(","),
                 )
                 w.write("\n")

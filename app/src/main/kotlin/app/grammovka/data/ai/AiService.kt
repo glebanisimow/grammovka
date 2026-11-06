@@ -399,6 +399,38 @@ class AiService(
         return PhotoMapping.combine(o, resolved, barcode)
     }
 
+    // ------------------------------------------------------------------ ACTIVITY
+
+    /**
+     * Free-text workouts → structured records with Claude's gross kcal estimate (structured output, same docs as above).
+     * Invariant 2: the result only pre-fills the workout confirm sheet; the app computes net kcal and all sums.
+     */
+    suspend fun activity(text: String, sex: String?, ageYears: Int?, weightKg: Double?): List<ActivityProposal> {
+        val num = { nullable("number") }
+        val schema = obj(
+            "items" to arr(
+                obj(
+                    "type" to enumOf("WALK", "RUN", "BIKE", "STRENGTH", "OTHER"),
+                    "title" to str(), "minutes" to num(), "distanceKm" to num(), "avgHr" to num(),
+                    "intensity" to enumOf("LIGHT", "MODERATE", "HARD", "UNKNOWN"),
+                    "grossKcal" to num(), "confidence" to enumOf("HIGH", "MEDIUM", "LOW"), "reasoning" to str(),
+                ),
+            ),
+        )
+        val input = buildJsonObject {
+            put("text", text.trim())
+            putJsonObject("body") { put("sex", sex); put("ageYears", ageYears); put("weightKg", weightKg) }
+        }
+        val body = buildJsonObject {
+            put("max_tokens", 1500)
+            put("system", systemBlocks(Prompts.PROMPT_ACTIVITY_V1))
+            putJsonArray("messages") { addJsonObject { put("role", "user"); put("content", input.toString()) } }
+            putJsonObject("output_config") { putJsonObject("format") { put("type", "json_schema"); put("schema", schema) } }
+        }
+        val resp = call(AiPurpose.ACTIVITY, Prompts.ACTIVITY_VERSION, body, OTHER_TIMEOUT_MS)
+        return ActivityMapping.proposals(json.parseToJsonElement(resp.text).jsonObject)
+    }
+
     // ------------------------------------------------------------------ plumbing
 
     private suspend fun call(purpose: AiPurpose, version: String, body: JsonObject, timeoutMs: Long, record: Boolean = true): ClaudeResponse {

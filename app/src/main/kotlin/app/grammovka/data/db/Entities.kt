@@ -5,6 +5,9 @@ import androidx.room.ForeignKey
 import androidx.room.Fts4
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import app.grammovka.domain.activity.ActivitySource
+import app.grammovka.domain.activity.ActivityType
+import app.grammovka.domain.activity.Intensity
 import app.grammovka.domain.model.AiPurpose
 import app.grammovka.domain.model.Confidence
 import app.grammovka.domain.model.FoodBasis
@@ -207,4 +210,29 @@ data class RemoteCacheEntity(
     @PrimaryKey val key: String,
     val body: String,
     val fetchedAt: Long,
+)
+
+/**
+ * A logged workout (schema v4). [kcal] is the chosen net energy above rest, stored as a snapshot:
+ * it goes on top of the day's norm and is taken out of the measured expenditure. [formulaKcal] and
+ * [claudeKcal] keep both estimates the user saw on the confirm screen.
+ */
+@Entity(tableName = "activity_entry", indices = [Index("date")])
+data class ActivityEntryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val date: LocalDate,
+    val time: LocalTime,
+    val type: ActivityType,
+    val minutes: Double,
+    val distanceKm: Double? = null,
+    val avgHr: Int? = null,
+    val intensity: Intensity? = null,
+    /** What the user said or typed, e.g. «велик 100 км, пульс 135, ветер». */
+    val description: String = "",
+    val kcal: Double,
+    val source: ActivitySource,
+    val formulaKcal: Double? = null,
+    val claudeKcal: Double? = null,
+    val note: String? = null,
+    val createdAt: Long,
 )

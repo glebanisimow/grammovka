@@ -65,4 +65,23 @@ class MigrationTest {
             db.execSQL("UPDATE log_entry SET meal = 'BREAKFAST'")
         }
     }
+
+    @Test
+    fun migrate3To4AddsActivities() {
+        helper.createDatabase(dbName, 3).apply {
+            execSQL(
+                "INSERT INTO log_entry (date, time, foodId, foodName, grams, kcal, protein, fat, carbs, inputMethod, meal) " +
+                    "VALUES ('2026-11-06', '08:30', NULL, 'Каша', 250, 300, 10, 5, 50, 'TEXT', 'BREAKFAST')",
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 4, true, Migrations.M3_4).use { db ->
+            db.query("SELECT COUNT(*) FROM log_entry").use { it.moveToFirst(); assertEquals(1, it.getInt(0)) }
+            db.execSQL(
+                "INSERT INTO activity_entry (date, time, type, minutes, distanceKm, avgHr, description, kcal, source, createdAt) " +
+                    "VALUES ('2026-11-06', '10:00', 'BIKE', 240, 100, 135, 'велик 100 км', 2800, 'FORMULA', 0)",
+            )
+            db.query("SELECT kcal FROM activity_entry").use { it.moveToFirst(); assertEquals(2800.0, it.getDouble(0), 0.0) }
+        }
+    }
 }

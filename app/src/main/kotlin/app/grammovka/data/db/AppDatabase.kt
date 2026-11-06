@@ -20,7 +20,7 @@ class Converters {
 }
 
 @Database(
-    version = 3,
+    version = 4,
     exportSchema = true,
     entities = [
         FoodEntity::class,
@@ -37,6 +37,7 @@ class Converters {
         AiCallLogEntity::class,
         PendingItemEntity::class,
         RemoteCacheEntity::class,
+        ActivityEntryEntity::class,
     ],
 )
 @TypeConverters(Converters::class)
@@ -51,6 +52,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun recipeDao(): RecipeDao
     abstract fun templateDao(): TemplateDao
     abstract fun pendingDao(): PendingDao
+    abstract fun activityDao(): ActivityDao
 
     companion object {
         const val NAME = "grammovka.db"
@@ -85,5 +87,18 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(M1_2, M2_3)
+    /** v4: logged workouts. */
+    val M3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `activity_entry` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `date` TEXT NOT NULL, " +
+                    "`time` TEXT NOT NULL, `type` TEXT NOT NULL, `minutes` REAL NOT NULL, `distanceKm` REAL, `avgHr` INTEGER, " +
+                    "`intensity` TEXT, `description` TEXT NOT NULL, `kcal` REAL NOT NULL, `source` TEXT NOT NULL, " +
+                    "`formulaKcal` REAL, `claudeKcal` REAL, `note` TEXT, `createdAt` INTEGER NOT NULL)",
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_activity_entry_date` ON `activity_entry` (`date`)")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(M1_2, M2_3, M3_4)
 }

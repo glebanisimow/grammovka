@@ -109,6 +109,8 @@ fun TodayScreen(
     var editEntry by remember { mutableStateOf<LogEntryEntity?>(null) }
     var templatesDialog by remember { mutableStateOf(false) }
     var cardMenu by remember { mutableStateOf<MealBlock<LogEntryEntity>?>(null) }
+    /** Workout sheet: null = closed; [ActivitySheetState.editing] null = new workout. */
+    var activitySheet by remember { mutableStateOf<ActivitySheetState?>(null) }
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
     val focusInput = { container.widgetAction.value = app.grammovka.widget.GrammovkaWidget.ACTION_ADD }
 
@@ -134,6 +136,20 @@ fun TodayScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        container.debugActivity.collect { text ->
+            if (text != null) {
+                container.debugActivity.value = null
+                activitySheet = ActivitySheetState(null, text)
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        vm.activityDeletions.collect { e ->
+            val r = snackbar.showSnackbar("Удалено: ${e.type.ru.lowercase()}", actionLabel = "Отменить", duration = SnackbarDuration.Short)
+            if (r == SnackbarResult.ActionPerformed) vm.restoreActivity(e)
+        }
+    }
     LaunchedEffect(Unit) {
         vm.deletions.collect { b ->
             val r = snackbar.showSnackbar("Удалено: ${b.meal.ru}", actionLabel = "Отменить", duration = SnackbarDuration.Short)
@@ -197,7 +213,21 @@ fun TodayScreen(
                         )
                     }
                 }
-                item { AddMealButton { m -> vm.openCard(m); focusInput() } }
+                if (ui.activities.isNotEmpty()) {
+                    item { ActivityCard(ui.activities) { activitySheet = ActivitySheetState(it, null) } }
+                }
+                item {
+                    Row {
+                        AddMealButton { m -> vm.openCard(m); focusInput() }
+                        Box(Modifier.padding(vertical = 8.dp)) {
+                            androidx.compose.material3.OutlinedButton(onClick = { activitySheet = ActivitySheetState(null, null) }, shape = MaterialTheme.shapes.small) {
+                                Icon(GIcons.Pulse, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Тренировка")
+                            }
+                        }
+                    }
+                }
             }
             TargetBar(ui.target, ui.targetPicked, vm::pickTarget)
             InputBar(
@@ -211,6 +241,15 @@ fun TodayScreen(
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp))
     }
 
+    activitySheet?.let { st ->
+        ActivitySheet(
+            editing = st.editing, body = ui.body, initialText = st.text,
+            estimate = vm::estimateActivity,
+            onDismiss = { activitySheet = null },
+            onSave = { drafts -> vm.saveActivities(drafts, st.editing); activitySheet = null },
+            onDelete = { vm.deleteActivity(it); activitySheet = null },
+        )
+    }
     if (weightDialog) WeightDialog(ui.weightKg, onDismiss = { weightDialog = false }) { vm.setWeight(it); weightDialog = false }
     editEntry?.let { e ->
         EntryDialog(
@@ -264,13 +303,22 @@ private fun Budget(ui: TodayUi, onOpenProfile: () -> Unit, onWeight: () -> Unit)
             !ui.profileComplete -> Notice("Заполните профиль: пол, год рождения и рост нужны, чтобы считать бюджет.", "Открыть профиль", onOpenProfile)
             m == null -> Notice("Введите вес: с первого взвешивания появится цель на день.", "Ввести вес", onWeight)
             else -> {
-                val left = m.allowance - ui.eaten.kcal
+                val b = m.balance(ui.eaten.kcal)
+                val left = b.left
                 Text(if (left >= 0) "ОСТАЛОСЬ" else "СВЕРХ БЮДЖЕТА", style = MaterialTheme.typography.labelMedium, color = GTheme.extra.textMuted)
                 Text(Fmt.kcal(abs(left)), style = NumberHero, color = if (left >= 0) GTheme.extra.accentText else MaterialTheme.colorScheme.error)
                 Text(
-                    "из ${Fmt.kcal(m.allowance)} ккал · съедено ${Fmt.kcal(ui.eaten.kcal)}",
+                    if (m.activity > 0) "из ${Fmt.kcal(m.allowance)} + ${Fmt.kcal(m.activity)} тренировки · съедено ${Fmt.kcal(ui.eaten.kcal)}"
+                    else "из ${Fmt.kcal(m.allowance)} ккал · съедено ${Fmt.kcal(ui.eaten.kcal)}",
                     style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
                 )
+                if (m.activity > 0) {
+                    Text(
+                        "Расход дня ≈ ${Fmt.kcal(b.expenditure)} (норма ${Fmt.kcal(m.snapshot.tdee)} + тренировки ${Fmt.kcal(m.activity)}) · " +
+                            "баланс ${if (b.balance > 0) "+" else "−"}${Fmt.kcal(abs(b.balance))}",
+                        style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+                    )
+                }
                 val p = m.snapshot.proteinTarget
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -565,4 +613,42 @@ private fun EntryDialog(e: LogEntryEntity, onDismiss: () -> Unit, onSave: (Doubl
             }
         },
     )
+}
+
+/** Open workout sheet: [editing] null for a new one; [text] pre-fills and runs the Claude estimate (debug hook). */
+private data class ActivitySheetState(val editing: app.grammovka.data.db.ActivityEntryEntity?, val text: String?)
+
+/** The day's workouts: net kcal on top of the norm; tap a row to edit. */
+@Composable
+private fun ActivityCard(items: List<app.grammovka.data.db.ActivityEntryEntity>, onOpen: (app.grammovka.data.db.ActivityEntryEntity) -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium).padding(vertical = 8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(GIcons.Pulse, null, Modifier.size(18.dp), tint = GTheme.extra.textMuted)
+            Spacer(Modifier.width(8.dp))
+            Text("Тренировки", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+            Text("+${Fmt.kcal(items.sumOf { it.kcal })} ккал", style = MaterialTheme.typography.titleSmall, color = GTheme.extra.accentText)
+        }
+        items.forEach { a ->
+            Row(
+                Modifier.fillMaxWidth().clickable { onOpen(a) }.heightIn(min = 48.dp).padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(a.note ?: a.type.ru, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        a.summary() + when (a.source) {
+                            app.grammovka.domain.activity.ActivitySource.FORMULA -> " · формула"
+                            app.grammovka.domain.activity.ActivitySource.CLAUDE_ESTIMATE -> " · оценка Claude"
+                            app.grammovka.domain.activity.ActivitySource.MANUAL -> " · вручную"
+                        },
+                        style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+                    )
+                }
+                Text(Fmt.kcal(a.kcal), style = MaterialTheme.typography.bodyLarge)
+            }
+        }
+    }
 }

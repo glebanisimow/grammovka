@@ -56,6 +56,11 @@ data class TodayUi(
     val offerReminder: Boolean = false,
     val repeats: List<RepeatMeal> = emptyList(),
     val templates: List<TemplateView> = emptyList(),
+    val activities: List<app.grammovka.data.db.ActivityEntryEntity> = emptyList(),
+    /** Body data for workout formulas; null without a profile or a weigh-in. */
+    val body: app.grammovka.domain.activity.Body? = null,
+    val sex: app.grammovka.domain.engine.Sex? = null,
+    val ageYears: Int? = null,
 )
 
 private fun LogEntryEntity.mealOrSnack(): Meal = meal ?: Meal.SNACK
@@ -72,18 +77,22 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
     private val pick = MutableStateFlow<Pick?>(null)
     private val opened = MutableStateFlow<Map<LocalDate, List<OpenCard>>>(emptyMap())
 
-    private data class DayData(val entries: List<LogEntryEntity>, val kg: Double?, val incomplete: Boolean, val repeats: List<RepeatMeal>)
+    private data class DayData(
+        val entries: List<LogEntryEntity>, val kg: Double?, val incomplete: Boolean, val repeats: List<RepeatMeal>,
+        val activities: List<app.grammovka.data.db.ActivityEntryEntity>,
+    )
 
     private val dayData = date.flatMapLatest { d ->
         combine(
             c.logRepository.observeDay(d), c.weightRepository.observe(d), c.logRepository.observeStatus(d), c.logRepository.observeDay(d.minusDays(1)),
-        ) { e, w, inc, prev ->
+            c.activityRepository.observeDay(d),
+        ) { e, w, inc, prev, acts ->
             val today = e.mapNotNull { it.meal }.toSet()
             // Snacks are not repeated: there can be several a day and they are rarely the same.
             val repeats = prev.filter { it.meal != null && it.meal != Meal.SNACK }.groupBy { it.meal!! }
                 .filterKeys { it !in today }
                 .toSortedMap().map { (m, list) -> RepeatMeal(m, list) }
-            DayData(e, w?.kg, inc, repeats)
+            DayData(e, w?.kg, inc, repeats, acts)
         }
     }
 
@@ -95,11 +104,17 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
 
     val ui: StateFlow<TodayUi> = combine(
         date, dayData, c.modelHub.state, c.settingsStore.settings, combine(shortcuts, cards, ::Pair),
-    ) { d, (entries, w, inc, repeats), model, settings, (sc, cardState) ->
+    ) { d, day, model, settings, (sc, cardState) ->
+        val (entries, w, inc, repeats) = day
         val (used, templates, pending) = sc
         val (p, open) = cardState
         val blocks = MealBlocks.group(entries, { it.time }, { it.meal })
         val picked = p?.takeIf { it.date == d && System.currentTimeMillis() - it.at <= PICK_MINUTES * 60_000 }?.meal
+        val dayModel = model?.day(d)
+        val profile = settings.profile.toProfile(d)
+        val body = if (profile != null && dayModel != null) {
+            app.grammovka.domain.activity.Body(profile.sex, profile.ageYears, dayModel.snapshot.trendWeight, dayModel.snapshot.bmr)
+        } else null
         val auto = if (d == LocalDate.now()) MealBlocks.defaultTarget(blocks, { it.time }, LocalTime.now()) else Meal.SNACK
         TodayUi(
             date = d,
@@ -110,7 +125,7 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
             target = picked ?: auto,
             targetPicked = picked != null,
             eaten = entries.fold(Amount.ZERO) { a, e -> a + Amount(e.kcal, e.protein, e.fat, e.carbs) },
-            model = model?.day(d),
+            model = dayModel,
             profileComplete = settings.profile.complete,
             weightKg = w,
             incomplete = inc,
@@ -118,6 +133,10 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
             repeats = repeats,
             templates = templates,
             pending = pending,
+            activities = day.activities,
+            body = body,
+            sex = profile?.sex,
+            ageYears = profile?.ageYears,
             // Offered once, after the first day with entries: the question only makes sense then.
             offerReminder = !settings.reminder.offered && !settings.reminder.enabled && used.isNotEmpty(),
         )
@@ -275,6 +294,37 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
 
     fun updateGrams(e: LogEntryEntity, grams: Double) {
         viewModelScope.launch { c.logRepository.updateGrams(e, grams) }
+    }
+
+    /** Claude reads a free-text workout description; the result only pre-fills the confirm sheet. */
+    suspend fun estimateActivity(text: String): List<app.grammovka.data.ai.ActivityProposal> {
+        val u = ui.value
+        return c.aiService.activity(text, u.sex?.name, u.ageYears, u.body?.weightKg)
+    }
+
+    fun saveActivities(drafts: List<ActivityDraft>, editing: app.grammovka.data.db.ActivityEntryEntity?) {
+        val d = date.value
+        val body = ui.value.body
+        val time = if (d == LocalDate.now()) LocalTime.now().withSecond(0).withNano(0) else LocalTime.of(12, 0)
+        val items = drafts.mapNotNull { it.toEntity(editing, body, d, time) }
+        if (items.isEmpty()) return
+        viewModelScope.launch {
+            if (editing != null) c.activityRepository.update(items.first()) else c.activityRepository.add(items)
+        }
+    }
+
+    /** Deleted workout, for the «Отменить» snackbar. */
+    val activityDeletions = kotlinx.coroutines.flow.MutableSharedFlow<app.grammovka.data.db.ActivityEntryEntity>(extraBufferCapacity = 1)
+
+    fun deleteActivity(e: app.grammovka.data.db.ActivityEntryEntity) {
+        viewModelScope.launch {
+            c.activityRepository.delete(e.id)
+            activityDeletions.emit(e)
+        }
+    }
+
+    fun restoreActivity(e: app.grammovka.data.db.ActivityEntryEntity) {
+        viewModelScope.launch { c.activityRepository.restore(e) }
     }
 
     fun setIncomplete(v: Boolean) {

@@ -4,6 +4,7 @@ import app.grammovka.data.db.AppDatabase
 import app.grammovka.data.db.ModelSnapshotEntity
 import app.grammovka.data.db.WeightEntryEntity
 import app.grammovka.data.settings.ProfileSettings
+import app.grammovka.domain.engine.DayBalance
 import app.grammovka.domain.engine.DayIntake
 import app.grammovka.domain.engine.EnergyModel
 import app.grammovka.domain.engine.Profile
@@ -28,7 +29,12 @@ data class DayModel(
     val snapshot: Snapshot,
     val allowance: Double,
     val warnings: Set<Warning>,
-)
+    /** Net kcal of the day's logged workouts, on top of the norm. */
+    val activity: Double = 0.0,
+    private val engine: EnergyModel = EnergyModel(),
+) {
+    fun balance(eaten: Double): DayBalance = engine.balance(allowance, snapshot.tdee, activity, eaten)
+}
 
 /** Result of a model replay: the per-day snapshots plus what is needed to derive any day's budget. */
 class ModelState(
@@ -44,6 +50,8 @@ class ModelState(
             snapshot = s,
             allowance = engine.allowance(date, s.target, profile.budgetMode, days),
             warnings = engine.warnings(date, profile, s, days, weights),
+            activity = days[date]?.activity ?: 0.0,
+            engine = engine,
         )
     }
 }
@@ -55,6 +63,7 @@ class ModelState(
 class ModelRepository(
     private val db: AppDatabase,
     private val logs: LogRepository,
+    private val activities: ActivityRepository,
     private val engine: EnergyModel = EnergyModel(),
 ) {
     private val weights = db.weightDao()
@@ -71,7 +80,11 @@ class ModelRepository(
             snapshots.deleteFrom(LocalDate.of(1900, 1, 1))
             return null
         }
-        val days: Map<LocalDate, DayIntake> = logs.intake(first.minusDays(28), today)
+        val food = logs.intake(first.minusDays(28), today)
+        val workouts = activities.totals(first.minusDays(28), today)
+        val days: Map<LocalDate, DayIntake> = (food.keys + workouts.keys).associateWith { d ->
+            (food[d] ?: DayIntake(0.0, 0.0, hasEntries = false, incomplete = false)).copy(activity = workouts[d] ?: 0.0)
+        }
         val run = engine.run(first, today, profile, days, allWeights, previousTdee = null)
         snapshots.deleteFrom(LocalDate.of(1900, 1, 1))
         snapshots.upsertAll(run.map { it.toEntity() })

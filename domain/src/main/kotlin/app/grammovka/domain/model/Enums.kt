@@ -13,7 +13,7 @@ enum class InputMethod { TEXT, VOICE, BARCODE, LABEL, PHOTO, QUICK, TEMPLATE }
 /** Manual weigh-ins win over imported ones for the same date. */
 enum class WeightSource { MANUAL, HEALTH_CONNECT }
 
-enum class AiPurpose { PARSE, RESOLVE, LABEL, MEAL_PHOTO, ANALYSIS, CHAT }
+enum class AiPurpose { PARSE, RESOLVE, LABEL, MEAL_PHOTO, ANALYSIS, CHAT, ACTIVITY }
 
 /** Meal of a log entry. Set only when the user says so («завтрак: …», a chip); null means unspecified (snacks too, unless said). */
 enum class Meal(val ru: String) { BREAKFAST("завтрак"), LUNCH("обед"), DINNER("ужин"), SNACK("перекус") }

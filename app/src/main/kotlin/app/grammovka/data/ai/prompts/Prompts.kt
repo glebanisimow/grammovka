@@ -9,6 +9,7 @@ object Prompts {
     const val RESOLVE_VERSION = "RESOLVE_V1"
     const val LABEL_VERSION = "LABEL_V1"
     const val PHOTO_VERSION = "PHOTO_V1"
+    const val ACTIVITY_VERSION = "ACTIVITY_V1"
 
     val PROMPT_PARSE_V1 = """
         You map fragments of a Russian-language food diary to foods in the user's catalog.
@@ -70,5 +71,25 @@ object Prompts {
           fiber exactly as printed (null where absent); otherwise null. Never compute or convert numbers.
         - notes: anything the user should check, in Russian, short; null if nothing.
         If the photos show no food at all, return an empty items list and say so in notes.
+    """.trimIndent()
+
+    val PROMPT_ACTIVITY_V1 = """
+        You turn a Russian description of the user's workouts into structured records and estimate their energy cost.
+        Input: JSON with "text" (typed or dictated, may be informal: «велик 100 км за 4 часа пульс 135», «зал час, тяжело»),
+        and "body" (sex, ageYears, weightKg; any may be null).
+        Output one item per distinct workout in the text, in order:
+        - type: WALK (walking, hiking), RUN, BIKE (any cycling), STRENGTH (gym, weights, bodyweight, crossfit), OTHER (anything else:
+          swimming, skiing, football, yoga…).
+        - title: a short Russian label for the list, e.g. «Велосипед, шоссе», «Плавание», «Зал: ноги».
+        - minutes: duration in minutes if stated or clearly derivable (e.g. «с 10 до 12» → 120); else null. Never guess the duration.
+        - distanceKm: if stated, else null. avgHr: average heart rate if stated, else null.
+        - intensity: LIGHT, MODERATE or HARD if the text says or clearly implies it (pace, «тяжело», «спокойно»), else UNKNOWN.
+        - grossKcal: your estimate of TOTAL energy spent during the workout (including resting metabolism for that time),
+          for this body, using what the text says: speed, terrain, elevation, wind, load, heart rate, rests. Use the
+          Compendium of Physical Activities and heart-rate equations as references. null only if minutes is null.
+        - confidence: HIGH only with duration plus heart rate or distance on a common activity; MEDIUM typical; LOW if vague.
+        - reasoning: in Russian, one or two short sentences: what you assumed (MET or pace, terrain) and why.
+        Do not add up workouts and do not compute daily totals: the app does all sums.
+        If the text has no workout, return an empty items list.
     """.trimIndent()
 }

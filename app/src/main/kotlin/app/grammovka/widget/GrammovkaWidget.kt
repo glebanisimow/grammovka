@@ -54,7 +54,7 @@ class GrammovkaWidget : GlanceAppWidget() {
         val totals = c.database.logDao().totals(today, today).firstOrNull()
         val day = c.modelRepository.recompute(c.settingsStore.current().profile, today)?.day(today)
         val eaten = totals?.kcal ?: 0.0
-        return WidgetData(day?.let { it.allowance - eaten }, eaten, totals?.protein ?: 0.0, day?.snapshot?.proteinTarget)
+        return WidgetData(day?.let { it.balance(eaten).left }, eaten, totals?.protein ?: 0.0, day?.snapshot?.proteinTarget)
     }
 
     @androidx.compose.runtime.Composable

@@ -26,6 +26,7 @@ class MainActivity : ComponentActivity() {
         val c = (application as GrammovkaApp).container
         intent?.getStringExtra("debug_input")?.let { c.debugInput.value = it }
         intent?.getStringExtra("debug_voice")?.let { c.debugInput.value = "voice:$it" }
+        intent?.getStringExtra("debug_activity")?.let { c.debugActivity.value = it }
         intent?.getStringExtra("debug_barcode")?.let { c.debugCapture.value = "barcode:$it" }
         intent?.getStringExtra("debug_label")?.let { c.debugCapture.value = "label:$it" }
         intent?.getStringExtra("debug_photo")?.let { c.debugCapture.value = "photo:$it" }

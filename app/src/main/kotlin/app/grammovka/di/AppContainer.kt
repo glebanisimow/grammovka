@@ -72,17 +72,21 @@ class AppContainer(context: Context) {
     }
     val recipeRepository by lazy { app.grammovka.data.repo.RecipeRepository(database, foodRepository) }
     val weightRepository by lazy { WeightRepository(database) }
-    val modelRepository by lazy { ModelRepository(database, logRepository) }
+    val activityRepository by lazy { app.grammovka.data.repo.ActivityRepository(database) }
+    val modelRepository by lazy { ModelRepository(database, logRepository, activityRepository) }
     val quickLogPlanner by lazy { QuickLogPlanner(foodRepository) }
 
     /** Lives as long as the process; used for app-wide flows such as the model replay. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val modelHub by lazy { ModelHub(appScope, settingsStore, logRepository, weightRepository, modelRepository) }
+    val modelHub by lazy { ModelHub(appScope, settingsStore, logRepository, activityRepository, weightRepository, modelRepository) }
     val reviewInbox = ReviewInbox()
     val backupService by lazy { app.grammovka.data.backup.BackupService(database, settingsStore) }
 
     /** Debug builds only: text injected by adb for end-to-end checks. */
     val debugInput = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+    /** Debug builds only: workout text that opens the workout sheet and runs the Claude estimate. */
+    val debugActivity = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
     /** Debug builds only: "barcode:<code>" as if ML Kit read it, or "label:<file in app files dir>". */
     val debugCapture = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)

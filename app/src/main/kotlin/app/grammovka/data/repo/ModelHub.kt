@@ -17,13 +17,14 @@ import java.time.LocalDate
 
 /**
  * App-wide model state: replays the energy model whenever the log, weights, day statuses, profile
- * or the calendar day change (spec: recompute daily and on edits to past days).
+ * workouts or the calendar day change (spec: recompute daily and on edits to past days).
  */
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class ModelHub(
     scope: CoroutineScope,
     settings: SettingsStore,
     logs: LogRepository,
+    activities: ActivityRepository,
     weights: WeightRepository,
     private val model: ModelRepository,
 ) {
@@ -36,7 +37,7 @@ class ModelHub(
 
     val state: StateFlow<ModelState?> = combine(
         settings.settings.map { it.profile }.distinctUntilChanged(),
-        logs.observeChanges(),
+        combine(logs.observeChanges(), activities.observeChanges()) { a, b -> a + "|" + b },
         logs.observeStatusChanges(),
         weights.observeAll(),
         today,

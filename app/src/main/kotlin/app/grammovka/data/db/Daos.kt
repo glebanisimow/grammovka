@@ -211,3 +211,24 @@ interface PendingDao {
     @Query("SELECT COUNT(*) FROM pending_item") fun observeCount(): Flow<Int>
     @Query("SELECT COUNT(*) FROM pending_item") suspend fun count(): Int
 }
+
+data class ActivityTotalRow(val date: LocalDate, val kcal: Double)
+
+@Dao
+interface ActivityDao {
+    @Insert suspend fun insert(e: ActivityEntryEntity): Long
+    @Insert suspend fun insertAll(e: List<ActivityEntryEntity>): List<Long>
+    @Update suspend fun update(e: ActivityEntryEntity)
+    @Query("DELETE FROM activity_entry WHERE id = :id") suspend fun delete(id: Long)
+    @Query("DELETE FROM activity_entry") suspend fun deleteAll()
+
+    @Query("SELECT * FROM activity_entry WHERE date = :date ORDER BY time, id") fun observeDay(date: LocalDate): Flow<List<ActivityEntryEntity>>
+    @Query("SELECT * FROM activity_entry ORDER BY date, time, id") suspend fun all(): List<ActivityEntryEntity>
+
+    @Query("SELECT date, SUM(kcal) AS kcal FROM activity_entry WHERE date BETWEEN :from AND :to GROUP BY date ORDER BY date")
+    suspend fun totals(from: LocalDate, to: LocalDate): List<ActivityTotalRow>
+
+    /** Emits on any change; used to trigger model recomputation. */
+    @Query("SELECT COUNT(*) || '/' || IFNULL(MAX(id), 0) || '/' || IFNULL(SUM(kcal), 0) || '/' || IFNULL(GROUP_CONCAT(date), '') FROM activity_entry")
+    fun observeChecksum(): Flow<String>
+}

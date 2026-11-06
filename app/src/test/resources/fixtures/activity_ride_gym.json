@@ -1,0 +1,5 @@
+{"items":[
+ {"type":"BIKE","title":"Велосипед, шоссе","minutes":240,"distanceKm":100,"avgHr":135,"intensity":"MODERATE","grossKcal":3100,"confidence":"HIGH","reasoning":"25 км/ч по шоссе, пульс 135: около 10 MET."},
+ {"type":"STRENGTH","title":"Зал","minutes":null,"distanceKm":null,"avgHr":null,"intensity":"HARD","grossKcal":400,"confidence":"HIGH","reasoning":"Длительность не указана."},
+ {"type":"SWIM","title":"","minutes":45,"distanceKm":5000,"avgHr":300,"intensity":null,"grossKcal":450,"confidence":"MEDIUM","reasoning":""}
+]}

@@ -200,6 +200,7 @@ private fun ClaudeSettings(container: AppContainer) {
             app.grammovka.domain.model.AiPurpose.PARSE to "Разбор текста",
             app.grammovka.domain.model.AiPurpose.RESOLVE to "Поиск продукта",
             app.grammovka.domain.model.AiPurpose.LABEL to "Фото этикетки",
+            app.grammovka.domain.model.AiPurpose.ACTIVITY to "Тренировки",
         ).forEach { (p, label) ->
             var model by androidx.compose.runtime.remember(settings.models[p]) { androidx.compose.runtime.mutableStateOf(settings.models[p].orEmpty()) }
             OutlinedTextField(
