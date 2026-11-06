@@ -6,12 +6,16 @@ import java.time.temporal.ChronoUnit
 import kotlin.math.max
 import kotlin.math.min
 
-/** Totals for one calendar day of logging. */
+/**
+ * Totals for one calendar day of logging. [activity] is the net kcal of logged workouts (above rest):
+ * it is not part of the norm, it is added on top on its own day.
+ */
 data class DayIntake(
     val kcal: Double,
     val protein: Double,
     val hasEntries: Boolean,
     val incomplete: Boolean,
+    val activity: Double = 0.0,
 ) {
     /** A day counts for the model when it has entries and is not flagged incomplete. */
     val included: Boolean get() = hasEntries && !incomplete
@@ -34,6 +38,12 @@ data class Snapshot(
     val includedDays: Int,
     val weighIns: Int,
 )
+
+/**
+ * [left] — what can still be eaten today to keep the planned deficit; [expenditure] — the norm without
+ * workouts plus the day's workouts; [balance] — eaten minus expenditure (negative = deficit).
+ */
+data class DayBalance(val left: Double, val expenditure: Double, val balance: Double)
 
 enum class Warning { RATE_TOO_HIGH, LOSING_TOO_FAST, PROTEIN_LOW }
 
@@ -70,7 +80,10 @@ class EnergyModel(private val cfg: EngineConfig = EngineConfig()) {
         }
         val slope = olsSlope(weighIns.map { (d, w) -> ChronoUnit.DAYS.between(start, d).toDouble() to w })
         val meanIntake = included.map { it.kcal }.average()
-        return Observed(meanIntake - slope * cfg.kcalPerKg, included.size, weighIns.size, slope)
+        // Logged workouts are taken out, so the result is the norm without them: food eaten to cover a long
+        // ride must not raise the norm of every other day (that would count the ride twice).
+        val meanActivity = window.sumOf { days[it]?.activity ?: 0.0 } / window.size
+        return Observed(meanIntake - meanActivity - slope * cfg.kcalPerKg, included.size, weighIns.size, slope)
     }
 
     /** 3. Mifflin–St Jeor. */
@@ -148,16 +161,24 @@ class EnergyModel(private val cfg: EngineConfig = EngineConfig()) {
     /**
      * 8. Today's allowance. Weekly mode (week starts Monday): spread what is left of 7·target over the
      * remaining days including today, clamped to 0.75–1.25 × target. Past days that are not included count as target.
+     * A past day counts as intake minus its workouts: eating back a ride does not cut the rest of the week.
      */
     fun allowance(today: LocalDate, target: Double, mode: BudgetMode, days: Map<LocalDate, DayIntake>): Double {
         if (mode == BudgetMode.DAILY) return target
         val monday = today.with(DayOfWeek.MONDAY)
         val past = generateSequence(monday) { it.plusDays(1) }.takeWhile { it.isBefore(today) }
-            .sumOf { d -> days[d]?.takeIf { it.included }?.kcal ?: target }
+            .sumOf { d -> days[d]?.takeIf { it.included }?.let { it.kcal - it.activity } ?: target }
         val remaining = 7 - ChronoUnit.DAYS.between(monday, today)
         val raw = (7 * target - past) / remaining
         return raw.coerceIn(cfg.weeklyMinFactor * target, cfg.weeklyMaxFactor * target)
     }
+
+    /** Today's numbers with workouts: the norm stays, workouts of the day go on top. */
+    fun balance(allowance: Double, tdee: Double, activity: Double, eaten: Double) = DayBalance(
+        left = allowance + activity - eaten,
+        expenditure = tdee + activity,
+        balance = eaten - (tdee + activity),
+    )
 
     /** 9. Warnings shown on Today / Progress. */
     fun warnings(
