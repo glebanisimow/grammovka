@@ -505,7 +505,7 @@ private fun InputBar(
         OutlinedTextField(
             value = if (voice.listening) voice.partial else text, onValueChange = { text = it },
             modifier = Modifier.weight(1f).focusRequester(focus),
-            placeholder = { Text(if (voice.listening) "Говорите: «творог 150 и банан»" else "творог 150, кофе с молоком…") },
+            placeholder = { Text(if (voice.listening) "Говорите, в конце нажмите микрофон" else "творог 150, кофе с молоком…") },
             maxLines = 3,
             enabled = !busy && !voice.listening,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
