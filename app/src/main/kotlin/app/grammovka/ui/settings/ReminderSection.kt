@@ -32,7 +32,7 @@ import app.grammovka.ui.icons.GIcons
 import app.grammovka.ui.theme.GTheme
 import kotlinx.coroutines.launch
 
-/** Morning question «вчера всё записано?»: on/off and time. No weigh-in reminders (user's choice). */
+/** Morning question «закрыть вчерашний день?»: on/off and time. No weigh-in reminders (user's choice). */
 @Composable
 fun ReminderSection(container: AppContainer) {
     val context = LocalContext.current
@@ -63,7 +63,7 @@ fun ReminderSection(container: AppContainer) {
             })
         }
         Text(
-            "«Вчера всё записано?» с кнопками «да» и «нет — неполный». Спрашивает, только если вчера были записи.",
+            "«Закрыть вчерашний день?» с кнопками «закрыть» и «не полностью». Спрашивает, только если вчерашний день с записями остался открытым.",
             style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
         )
         if (r.enabled) {

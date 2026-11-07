@@ -112,6 +112,14 @@ fun TodayScreen(
     /** Workout sheet: null = closed; [ActivitySheetState.editing] null = new workout. */
     var activitySheet by remember { mutableStateOf<ActivitySheetState?>(null) }
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
+    var monthSheet by remember { mutableStateOf(false) }
+    /** Close dialog: null = hidden; true = close and then start / move to today (the «not today» banner). */
+    var closeDialog by remember { mutableStateOf<Boolean?>(null) }
+    var reopenDialog by remember { mutableStateOf(false) }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        vm.refreshToday()
+        onPauseOrDispose {}
+    }
     val focusInput = { container.widgetAction.value = app.grammovka.widget.GrammovkaWidget.ACTION_ADD }
 
     LaunchedEffect(Unit) {
@@ -160,83 +168,90 @@ fun TodayScreen(
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().imePadding()) {
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
-                item { DayHeader(ui.date, vm::shiftDay) }
-                item { Budget(ui, onOpenProfile, onWeight = { weightDialog = true }) }
-                if (ui.pending > 0) {
-                    item {
-                        Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                            Notice("Отложено до сети: ${ui.pending}. Claude разберёт, вы подтвердите.", "Разобрать", onOpenPending)
-                        }
-                    }
-                }
-                if (ui.offerReminder) item { ReminderOffer(vm) }
-                if (ui.chips.isNotEmpty() || ui.repeats.isNotEmpty() || ui.templates.isNotEmpty() || ui.entries.isNotEmpty()) {
-                    item { Chips(ui, vm, onTemplates = { templatesDialog = true }) }
-                }
-                item {
-                    Row(
-                        Modifier.fillMaxWidth().clickable { vm.setIncomplete(!ui.incomplete) }.padding(horizontal = 16.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("День записан не полностью", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        Switch(checked = ui.incomplete, onCheckedChange = vm::setIncomplete)
-                    }
-                }
-                if (ui.entries.isEmpty() && ui.openCards.isEmpty()) {
-                    item {
-                        Text(
-                            "Записей нет. Добавьте приём пищи или просто введите внизу, что съели: «творог 5% 150, кофе с молоком».",
-                            Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
-                        )
-                    }
-                }
-                // The snack card that a new snack would join: the last one, if no main meal started after it.
-                val lastMainStart = ui.blocks.filter { it.meal != Meal.SNACK }.maxOfOrNull { it.start }
-                val liveSnack = ui.blocks.lastOrNull { it.meal == Meal.SNACK }?.takeIf { s -> lastMainStart == null || s.start.isAfter(lastMainStart) }
-                val cards: List<Pair<java.time.LocalTime, Any>> = (ui.blocks.map { it.start to it } + ui.openCards.map { it.at to it }).sortedBy { it.first }
-                items(cards, key = { (_, c) -> if (c is OpenCard) "o" + c.meal else (c as MealBlock<*>).let { "b" + it.meal + (it.items.first() as LogEntryEntity).id } }) { (_, c) ->
-                    if (c is OpenCard) {
-                        EmptyMealCard(c, target = ui.target == c.meal, onAdd = { vm.pickTarget(c.meal); focusInput() }, onClose = { vm.closeCard(c.meal) })
-                    } else {
-                        @Suppress("UNCHECKED_CAST") val b = c as MealBlock<LogEntryEntity>
-                        val key = "b" + b.meal + b.items.first().id
-                        val isTarget = ui.target == b.meal && (b.meal != Meal.SNACK || b === liveSnack) && ui.openCards.none { it.meal == b.meal }
-                        MealCard(
-                            b, isTarget, collapsed[key] == true,
-                            onToggle = { collapsed[key] = collapsed[key] != true },
-                            onAdd = {
-                                // Adding to an earlier snack card: entries go in at its time so they land in it.
-                                vm.pickTarget(b.meal); focusInput()
-                            },
-                            onMenu = { cardMenu = b },
-                            onEntry = { editEntry = it },
-                        )
-                    }
-                }
-                if (ui.activities.isNotEmpty()) {
-                    item { ActivityCard(ui.activities) { activitySheet = ActivitySheetState(it, null) } }
-                }
-                item {
-                    Row {
-                        AddMealButton { m -> vm.openCard(m); focusInput() }
-                        Box(Modifier.padding(vertical = 8.dp)) {
-                            androidx.compose.material3.OutlinedButton(onClick = { activitySheet = ActivitySheetState(null, null) }, shape = MaterialTheme.shapes.small) {
-                                Icon(GIcons.Pulse, null, Modifier.size(16.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Тренировка")
+                item { DayHeader(ui, onCalendar = { monthSheet = true }, onReopen = { reopenDialog = true }) }
+                item { WeekStrip(ui, vm::select) }
+                val open = ui.state == app.grammovka.domain.log.DayState.OPEN
+                val closed = ui.state == app.grammovka.domain.log.DayState.CLOSED
+                if (open && ui.date != ui.today) item { NotTodayBanner(ui) { closeDialog = true } }
+                if (ui.state == app.grammovka.domain.log.DayState.NONE) {
+                    item { NotStarted(ui) { vm.startDay(ui.date) } }
+                } else {
+                    item { Budget(ui, onOpenProfile, onWeight = { if (open) weightDialog = true }) }
+                    if (open && ui.pending > 0) {
+                        item {
+                            Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                                Notice("Отложено до сети: ${ui.pending}. Claude разберёт, вы подтвердите.", "Разобрать", onOpenPending)
                             }
                         }
                     }
+                    if (open && ui.offerReminder) item { ReminderOffer(vm) }
+                    if (open && (ui.chips.isNotEmpty() || ui.repeats.isNotEmpty() || ui.templates.isNotEmpty() || ui.entries.isNotEmpty())) {
+                        item { Chips(ui, vm, onTemplates = { templatesDialog = true }) }
+                    }
+                    if (ui.entries.isEmpty() && ui.openCards.isEmpty()) {
+                        item {
+                            Text(
+                                if (open) "Записей нет. Добавьте приём пищи или просто введите внизу, что съели: «творог 5% 150, кофе с молоком»."
+                                else "Записей нет.",
+                                Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
+                            )
+                        }
+                    }
+                    // The snack card that a new snack would join: the last one, if no main meal started after it.
+                    val lastMainStart = ui.blocks.filter { it.meal != Meal.SNACK }.maxOfOrNull { it.start }
+                    val liveSnack = ui.blocks.lastOrNull { it.meal == Meal.SNACK }?.takeIf { s -> lastMainStart == null || s.start.isAfter(lastMainStart) }
+                    val cards: List<Pair<java.time.LocalTime, Any>> = (ui.blocks.map { it.start to it } + ui.openCards.map { it.at to it }).sortedBy { it.first }
+                    items(cards, key = { (_, c) -> if (c is OpenCard) "o" + c.meal else (c as MealBlock<*>).let { "b" + it.meal + (it.items.first() as LogEntryEntity).id } }) { (_, c) ->
+                        if (c is OpenCard) {
+                            EmptyMealCard(c, target = ui.target == c.meal, onAdd = { vm.pickTarget(c.meal); focusInput() }, onClose = { vm.closeCard(c.meal) })
+                        } else {
+                            @Suppress("UNCHECKED_CAST") val b = c as MealBlock<LogEntryEntity>
+                            val key = "b" + b.meal + b.items.first().id
+                            val isTarget = ui.target == b.meal && (b.meal != Meal.SNACK || b === liveSnack) && ui.openCards.none { it.meal == b.meal }
+                            MealCard(
+                                b, isTarget, collapsed[key] == true,
+                                onToggle = { collapsed[key] = collapsed[key] != true },
+                                onAdd = {
+                                    // Adding to an earlier snack card: entries go in at its time so they land in it.
+                                    vm.pickTarget(b.meal); focusInput()
+                                },
+                                onMenu = { cardMenu = b },
+                                onEntry = { editEntry = it },
+                                readOnly = closed,
+                            )
+                        }
+                    }
+                    if (ui.activities.isNotEmpty()) {
+                        item { ActivityCard(ui.activities) { if (open) activitySheet = ActivitySheetState(it, null) } }
+                    }
+                    if (open) {
+                        item {
+                            Row {
+                                AddMealButton { m -> vm.openCard(m); focusInput() }
+                                Box(Modifier.padding(vertical = 8.dp)) {
+                                    androidx.compose.material3.OutlinedButton(onClick = { activitySheet = ActivitySheetState(null, null) }, shape = MaterialTheme.shapes.small) {
+                                        Icon(GIcons.Pulse, null, Modifier.size(16.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Тренировка")
+                                    }
+                                }
+                            }
+                        }
+                        item { CloseDayButton { closeDialog = false } }
+                    }
+                    if (closed) item { ClosedFooter(ui, onStartToday = { vm.startDay(ui.today) }, onGoToday = { vm.select(ui.today) }) }
                 }
             }
-            TargetBar(ui.target, ui.targetPicked, vm::pickTarget)
-            InputBar(
-                busy,
-                focusSignal = container.widgetAction,
-                onSubmit = { text, method, clear -> vm.submit(text, { r -> clear(); onReview(r) }, method) { clear() } },
-                onScan = { onScan(ui.date, ui.target) }, onLabel = { onLabel(ui.date, ui.target) },
-                onMessage = { msg -> scope.launch { snackbar.showSnackbar(msg, duration = SnackbarDuration.Short) } },
-            )
+            if (ui.state == app.grammovka.domain.log.DayState.OPEN) {
+                TargetBar(ui.target, ui.targetPicked, vm::pickTarget)
+                InputBar(
+                    busy,
+                    focusSignal = container.widgetAction,
+                    onSubmit = { text, method, clear -> vm.submit(text, { r -> clear(); onReview(r) }, method) { clear() } },
+                    onScan = { onScan(ui.date, ui.target) }, onLabel = { onLabel(ui.date, ui.target) },
+                    onMessage = { msg -> scope.launch { snackbar.showSnackbar(msg, duration = SnackbarDuration.Short) } },
+                )
+            }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp))
     }
@@ -250,6 +265,15 @@ fun TodayScreen(
             onDelete = { vm.deleteActivity(it); activitySheet = null },
         )
     }
+    if (monthSheet) MonthSheet(ui, onSelect = vm::select, onDismiss = { monthSheet = false })
+    closeDialog?.let { thenToday ->
+        CloseDayDialog(
+            ui, thenToday,
+            onClose = { incomplete -> vm.closeDay(incomplete, thenToday); closeDialog = null },
+            onDismiss = { closeDialog = null },
+        )
+    }
+    if (reopenDialog) ReopenDialog(ui, onConfirm = { vm.reopenDay(); reopenDialog = false }, onDismiss = { reopenDialog = false })
     if (weightDialog) WeightDialog(ui.weightKg, onDismiss = { weightDialog = false }) { vm.setWeight(it); weightDialog = false }
     editEntry?.let { e ->
         EntryDialog(
@@ -279,23 +303,6 @@ fun TodayScreen(
 }
 
 @Composable
-private fun DayHeader(date: LocalDate, shift: (Long) -> Unit) {
-    val today = LocalDate.now()
-    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { shift(-1) }) { Icon(GIcons.Prev, "Предыдущий день") }
-        Text(
-            when (date) {
-                today -> "Сегодня"
-                today.minusDays(1) -> "Вчера"
-                else -> dayFmt.format(date).replaceFirstChar { it.uppercase() }
-            },
-            Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
-        )
-        if (date.isBefore(today)) IconButton(onClick = { shift(1) }) { Icon(GIcons.Next, "Следующий день") }
-    }
-}
-
-@Composable
 private fun Budget(ui: TodayUi, onOpenProfile: () -> Unit, onWeight: () -> Unit) {
     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val m = ui.model
@@ -305,19 +312,33 @@ private fun Budget(ui: TodayUi, onOpenProfile: () -> Unit, onWeight: () -> Unit)
             else -> {
                 val b = m.balance(ui.eaten.kcal)
                 val left = b.left
-                Text(if (left >= 0) "ОСТАЛОСЬ" else "СВЕРХ БЮДЖЕТА", style = MaterialTheme.typography.labelMedium, color = GTheme.extra.textMuted)
-                Text(Fmt.kcal(abs(left)), style = NumberHero, color = if (left >= 0) GTheme.extra.accentText else MaterialTheme.colorScheme.error)
-                Text(
-                    if (m.activity > 0) "из ${Fmt.kcal(m.allowance)} + ${Fmt.kcal(m.activity)} тренировки · съедено ${Fmt.kcal(ui.eaten.kcal)}"
-                    else "из ${Fmt.kcal(m.allowance)} ккал · съедено ${Fmt.kcal(ui.eaten.kcal)}",
-                    style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
-                )
-                if (m.activity > 0) {
+                if (ui.state == app.grammovka.domain.log.DayState.CLOSED) {
+                    // A closed day shows its result: the balance against the day's expenditure.
+                    Text("БАЛАНС ДНЯ", style = MaterialTheme.typography.labelMedium, color = GTheme.extra.textMuted)
                     Text(
-                        "Расход дня ≈ ${Fmt.kcal(b.expenditure)} (норма ${Fmt.kcal(m.snapshot.tdee)} + тренировки ${Fmt.kcal(m.activity)}) · " +
-                            "баланс ${if (b.balance > 0) "+" else "−"}${Fmt.kcal(abs(b.balance))}",
-                        style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+                        signedKcal(b.balance), style = NumberHero,
+                        color = if (b.balance > 0.5) MaterialTheme.colorScheme.error else GTheme.extra.success,
                     )
+                    Text(
+                        "съедено ${Fmt.kcal(ui.eaten.kcal)} · расход ≈ ${Fmt.kcal(b.expenditure)} · бюджет был ${Fmt.kcal(m.allowance + m.activity)} " +
+                            if (left >= 0) "(осталось ${Fmt.kcal(left)})" else "(сверх ${Fmt.kcal(-left)})",
+                        style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
+                    )
+                } else {
+                    Text(if (left >= 0) "ОСТАЛОСЬ" else "СВЕРХ БЮДЖЕТА", style = MaterialTheme.typography.labelMedium, color = GTheme.extra.textMuted)
+                    Text(Fmt.kcal(abs(left)), style = NumberHero, color = if (left >= 0) GTheme.extra.accentText else MaterialTheme.colorScheme.error)
+                    Text(
+                        if (m.activity > 0) "из ${Fmt.kcal(m.allowance)} + ${Fmt.kcal(m.activity)} тренировки · съедено ${Fmt.kcal(ui.eaten.kcal)}"
+                        else "из ${Fmt.kcal(m.allowance)} ккал · съедено ${Fmt.kcal(ui.eaten.kcal)}",
+                        style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
+                    )
+                    if (m.activity > 0) {
+                        Text(
+                            "Расход дня ≈ ${Fmt.kcal(b.expenditure)} (норма ${Fmt.kcal(m.snapshot.tdee)} + тренировки ${Fmt.kcal(m.activity)}) · " +
+                                "баланс ${if (b.balance > 0) "+" else "−"}${Fmt.kcal(abs(b.balance))}",
+                            style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+                        )
+                    }
                 }
                 val p = m.snapshot.proteinTarget
                 Spacer(Modifier.height(8.dp))
@@ -380,9 +401,9 @@ private fun ReminderOffer(vm: TodayViewModel) {
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text("Спрашивать утром «вчера всё записано?»", style = MaterialTheme.typography.titleSmall)
+        Text("Спрашивать утром «закрыть вчерашний день?»", style = MaterialTheme.typography.titleSmall)
         Text(
-            "В 9:00 придёт уведомление с кнопками «да» и «нет — неполный». Неполные дни модель не учитывает. Время меняется в настройках.",
+            "Если вчерашний день остался открытым, в 9:00 придёт уведомление: «закрыть» или «не полностью». Неполные дни норма не учитывает. Время меняется в настройках.",
             style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
         )
         Row {

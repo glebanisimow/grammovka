@@ -7,6 +7,9 @@ import app.grammovka.data.db.UsedFoodRow
 import app.grammovka.data.repo.DayModel
 import app.grammovka.data.repo.NewEntry
 import app.grammovka.data.repo.TemplateView
+import app.grammovka.domain.log.DayLedger
+import app.grammovka.domain.log.DayMark
+import app.grammovka.domain.log.DayState
 import app.grammovka.domain.log.MealBlock
 import app.grammovka.domain.log.MealBlocks
 import app.grammovka.domain.model.Meal
@@ -35,11 +38,20 @@ data class RepeatMeal(val meal: Meal, val entries: List<LogEntryEntity>) {
     val kcal: Double get() = entries.sumOf { it.kcal }
 }
 
+/** One day in the week strip and the month calendar. [balance] is shown only for closed days. */
+data class DayCell(val date: LocalDate, val state: DayState, val incomplete: Boolean, val selectable: Boolean, val balance: Double?, val eaten: Double?)
+
 /** An empty card the user opened with «+ Приём пищи» and has not filled yet. */
 data class OpenCard(val meal: Meal, val at: LocalTime)
 
 data class TodayUi(
     val date: LocalDate = LocalDate.now(),
+    val today: LocalDate = LocalDate.now(),
+    /** Lifecycle of [date]: only an OPEN day takes writes. */
+    val state: DayState = DayState.NONE,
+    val ledger: DayLedger = DayLedger(emptyMap(), LocalDate.now()),
+    /** Cells from the first day's week through the end of this week. */
+    val cells: Map<LocalDate, DayCell> = emptyMap(),
     val entries: List<LogEntryEntity> = emptyList(),
     val blocks: List<MealBlock<LogEntryEntity>> = emptyList(),
     val openCards: List<OpenCard> = emptyList(),
@@ -71,6 +83,29 @@ private const val PICK_MINUTES = 90L
 class TodayViewModel(private val c: AppContainer) : ViewModel() {
     val date = MutableStateFlow(LocalDate.now())
     val busy = MutableStateFlow(false)
+    private val today = MutableStateFlow(LocalDate.now())
+    private var placed = false
+
+    private val ledger = combine(c.logRepository.observeStatusChanges(), today) { list, t ->
+        DayLedger(list.associate { it.date to DayMark(it.startedAt != null, it.closedAt != null, it.incomplete) }, t)
+    }
+
+    init {
+        // On launch: the latest open day, otherwise today (never an arbitrary past date).
+        viewModelScope.launch {
+            ledger.collect { l ->
+                if (!placed) {
+                    placed = true
+                    date.value = l.defaultDay()
+                }
+            }
+        }
+    }
+
+    /** On resume: a new calendar day moves «today»; the shown day stays (an open yesterday gets its banner). */
+    fun refreshToday() {
+        today.value = LocalDate.now()
+    }
 
     /** Card picked by the user; it expires after [PICK_MINUTES] without writes, then the default rule applies. */
     private data class Pick(val date: LocalDate, val meal: Meal, val at: Long)
@@ -102,9 +137,23 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
 
     private val cards = combine(pick, opened, ::Pair)
 
+    private fun cells(l: DayLedger, model: app.grammovka.data.repo.ModelState?, t: LocalDate): Map<LocalDate, DayCell> {
+        var d = DayLedger.weekStart(l.firstDay)
+        val end = DayLedger.weekStart(t).plusDays(6)
+        val out = LinkedHashMap<LocalDate, DayCell>()
+        while (!d.isAfter(end)) {
+            val st = l.state(d)
+            val eaten = model?.days?.get(d)?.kcal
+            val balance = if (st == DayState.CLOSED && eaten != null) model.day(d)?.balance(eaten)?.balance else null
+            out[d] = DayCell(d, st, l.incomplete(d), l.selectable(d), balance, eaten)
+            d = d.plusDays(1)
+        }
+        return out
+    }
+
     val ui: StateFlow<TodayUi> = combine(
-        date, dayData, c.modelHub.state, c.settingsStore.settings, combine(shortcuts, cards, ::Pair),
-    ) { d, day, model, settings, (sc, cardState) ->
+        combine(date, ledger, today, ::Triple), dayData, c.modelHub.state, c.settingsStore.settings, combine(shortcuts, cards, ::Pair),
+    ) { (d, l, t), day, model, settings, (sc, cardState) ->
         val (entries, w, inc, repeats) = day
         val (used, templates, pending) = sc
         val (p, open) = cardState
@@ -118,6 +167,10 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
         val auto = if (d == LocalDate.now()) MealBlocks.defaultTarget(blocks, { it.time }, LocalTime.now()) else Meal.SNACK
         TodayUi(
             date = d,
+            today = t,
+            state = l.state(d),
+            ledger = l,
+            cells = cells(l, model, t),
             entries = entries,
             blocks = blocks,
             // An opened card disappears once something is written to it (a snack: after it was opened).
@@ -150,9 +203,34 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
         return (recent + frequent).distinctBy { it.foodId }.take(10).map { Chip(it.foodId, it.name, it.lastGrams!!) }
     }
 
-    fun shiftDay(days: Long) {
-        val next = date.value.plusDays(days)
-        if (!next.isAfter(LocalDate.now())) date.value = next
+    fun select(d: LocalDate) {
+        if (ui.value.ledger.selectable(d)) date.value = d
+    }
+
+    /** «Начать день» for [d] (today, or a skipped past day the user fills in afterwards). */
+    fun startDay(d: LocalDate) {
+        viewModelScope.launch {
+            c.logRepository.startDay(d)
+            date.value = d
+        }
+    }
+
+    /** Closes the shown day; [thenToday] also starts today (if not yet) and moves there. */
+    fun closeDay(incomplete: Boolean, thenToday: Boolean) {
+        val d = date.value
+        viewModelScope.launch {
+            c.logRepository.closeDay(d, incomplete)
+            opened.value = opened.value - d
+            if (thenToday) {
+                val t = LocalDate.now()
+                if (!c.logRepository.isClosed(t)) c.logRepository.startDay(t)
+                date.value = t
+            }
+        }
+    }
+
+    fun reopenDay() {
+        viewModelScope.launch { c.logRepository.reopenDay(date.value) }
     }
 
     private fun timeFor(d: LocalDate, meal: Meal? = ui.value.target): LocalTime =
@@ -325,10 +403,6 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
 
     fun restoreActivity(e: app.grammovka.data.db.ActivityEntryEntity) {
         viewModelScope.launch { c.activityRepository.restore(e) }
-    }
-
-    fun setIncomplete(v: Boolean) {
-        viewModelScope.launch { c.logRepository.setIncomplete(date.value, v) }
     }
 
     fun setWeight(kg: Double?) {

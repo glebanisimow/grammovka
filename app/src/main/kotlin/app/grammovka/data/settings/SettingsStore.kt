@@ -52,7 +52,7 @@ object AiDefaults {
     fun model(p: AiPurpose): String = if (p == AiPurpose.PARSE) FAST else STRONG
 }
 
-/** Morning question «вчера всё записано?». Off until the user turns it on (notification permission is asked then). */
+/** Morning question «закрыть вчерашний день?». Off until the user turns it on (notification permission is asked then). */
 data class ReminderSettings(
     val enabled: Boolean = false,
     val minuteOfDay: Int = 9 * 60,

@@ -45,14 +45,16 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
         if (!settings.enabled) return Result.success()
         val yesterday = LocalDate.now().minusDays(1)
         val day = c.logRepository.intake(yesterday, yesterday)[yesterday]
-        // Ask only about a day with entries that is not already flagged: an empty day is excluded anyway.
-        if (day != null && day.hasEntries && !day.incomplete) Notifications.yesterdayQuestion(applicationContext, yesterday, day.kcal)
+        // Ask only about an open day with entries: a closed day is settled, an empty one is excluded anyway.
+        if (day != null && day.hasEntries && !c.logRepository.isClosed(yesterday)) {
+            Notifications.yesterdayQuestion(applicationContext, yesterday, day.kcal)
+        }
         Reminder.schedule(applicationContext, settings)
         return Result.success()
     }
 }
 
-/** «Да» / «Нет — неполный» from the notification: sets the day flag without opening the app. */
+/** «Закрыть» / «Не полностью» from the notification: closes the day without opening the app. */
 class ReminderActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
@@ -62,7 +64,7 @@ class ReminderActionReceiver : BroadcastReceiver() {
         val app = context.applicationContext as GrammovkaApp
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                app.container.logRepository.setIncomplete(date, incomplete)
+                app.container.logRepository.closeDay(date, incomplete)
                 Notifications.cancel(context, Notifications.ID_REMINDER)
             } finally {
                 pending.finish()

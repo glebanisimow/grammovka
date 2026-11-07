@@ -88,7 +88,9 @@ fun AppRoot(container: AppContainer) {
         when (widgetAction) {
             app.grammovka.widget.GrammovkaWidget.ACTION_SCAN -> {
                 container.widgetAction.value = null
-                nav.navigate(CaptureRoute(LocalDate.now().toString(), CaptureMode.BARCODE.name))
+                // Into the day the user is filling in (an open yesterday stays yesterday), not blindly today.
+                val day = container.logRepository.defaultDay()
+                nav.navigate(CaptureRoute(day.toString(), CaptureMode.BARCODE.name))
             }
             app.grammovka.widget.GrammovkaWidget.ACTION_ADD -> {
                 // Today consumes it (focus + keyboard); make sure Today is on screen.

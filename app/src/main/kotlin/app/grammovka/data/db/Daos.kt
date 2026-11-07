@@ -100,6 +100,7 @@ interface LogDao {
 interface DayStatusDao {
     @Upsert suspend fun upsert(s: DayStatusEntity)
     @Query("SELECT * FROM day_status WHERE date = :date") fun observe(date: LocalDate): Flow<DayStatusEntity?>
+    @Query("SELECT * FROM day_status WHERE date = :date") suspend fun get(date: LocalDate): DayStatusEntity?
     @Query("SELECT * FROM day_status WHERE date BETWEEN :from AND :to") suspend fun between(from: LocalDate, to: LocalDate): List<DayStatusEntity>
     @Query("SELECT * FROM day_status ORDER BY date") suspend fun all(): List<DayStatusEntity>
     @Query("SELECT * FROM day_status ORDER BY date") fun observeAll(): Flow<List<DayStatusEntity>>

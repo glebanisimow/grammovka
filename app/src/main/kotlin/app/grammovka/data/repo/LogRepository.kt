@@ -25,6 +25,9 @@ data class NewEntry(
     val meal: Meal? = null,
 )
 
+/** A write into a day the user closed; the day has to be reopened first. */
+class DayClosedException(val date: LocalDate) : IllegalStateException("Day $date is closed")
+
 class LogRepository(
     private val db: AppDatabase,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -33,9 +36,13 @@ class LogRepository(
     private val foodDao = db.foodDao()
     private val statusDao = db.dayStatusDao()
 
-    /** Writes entries with a nutrient snapshot (invariant 4) and bumps food usage. Returns entry ids for Undo. */
+    /**
+     * Writes entries with a nutrient snapshot (invariant 4) and bumps food usage. Returns entry ids for Undo.
+     * Writing into a day starts it; a closed day refuses with [DayClosedException].
+     */
     suspend fun log(date: LocalDate, time: LocalTime, items: List<NewEntry>): List<Long> = db.withTransaction {
         val now = clock()
+        ensureWritable(date)
         val ids = logDao.insertAll(
             items.map {
                 val a = Nutrition.forGrams(it.per100, it.grams)
@@ -55,6 +62,7 @@ class LogRepository(
      */
     suspend fun copy(entries: List<LogEntryEntity>, date: LocalDate, time: LocalTime, meal: Meal? = null): List<Long> = db.withTransaction {
         val now = clock()
+        ensureWritable(date)
         val ids = logDao.insertAll(entries.map { it.copy(id = 0, date = date, time = time, inputMethod = InputMethod.QUICK, meal = meal ?: it.meal) })
         entries.mapNotNull { it.foodId }.forEach { foodDao.bumpUsage(it, now) }
         ids
@@ -94,7 +102,37 @@ class LogRepository(
 
     fun observeStatus(date: LocalDate): Flow<Boolean> = statusDao.observe(date).map { it?.incomplete == true }
 
-    suspend fun setIncomplete(date: LocalDate, incomplete: Boolean) = statusDao.upsert(DayStatusEntity(date, incomplete))
+    /** Keeps the day's other marks; only the flag changes. */
+    suspend fun setIncomplete(date: LocalDate, incomplete: Boolean) = edit(date) { it.copy(incomplete = incomplete) }
+
+    /** «Начать день». Idempotent. */
+    suspend fun startDay(date: LocalDate) = edit(date) { if (it.startedAt == null) it.copy(startedAt = clock()) else it }
+
+    /** «Закрыть день»: the day is counted and takes no more writes. [incomplete] keeps it out of the norm estimate. */
+    suspend fun closeDay(date: LocalDate, incomplete: Boolean) =
+        edit(date) { it.copy(startedAt = it.startedAt ?: clock(), closedAt = clock(), incomplete = incomplete) }
+
+    /** «Открыть для правки». The incomplete flag is cleared; it is asked again on the next close. */
+    suspend fun reopenDay(date: LocalDate) = edit(date) { it.copy(closedAt = null, incomplete = false) }
+
+    suspend fun isClosed(date: LocalDate): Boolean = statusDao.get(date)?.closedAt != null
+
+    /** The day the app opens on: the latest open day, otherwise today. */
+    suspend fun defaultDay(today: LocalDate = LocalDate.now()): LocalDate =
+        app.grammovka.domain.log.DayLedger(
+            statusDao.all().associate { it.date to app.grammovka.domain.log.DayMark(it.startedAt != null, it.closedAt != null, it.incomplete) },
+            today,
+        ).defaultDay()
+
+    private suspend fun edit(date: LocalDate, f: (DayStatusEntity) -> DayStatusEntity) = db.withTransaction {
+        statusDao.upsert(f(statusDao.get(date) ?: DayStatusEntity(date, incomplete = false)))
+    }
+
+    private suspend fun ensureWritable(date: LocalDate) {
+        val s = statusDao.get(date)
+        if (s?.closedAt != null) throw DayClosedException(date)
+        if (s?.startedAt == null) statusDao.upsert((s ?: DayStatusEntity(date, incomplete = false)).copy(startedAt = clock()))
+    }
 
     fun observeChanges(): Flow<String> = logDao.observeChecksum()
 

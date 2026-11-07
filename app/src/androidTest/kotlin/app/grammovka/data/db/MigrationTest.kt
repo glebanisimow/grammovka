@@ -84,4 +84,31 @@ class MigrationTest {
             db.query("SELECT kcal FROM activity_entry").use { it.moveToFirst(); assertEquals(2800.0, it.getDouble(0), 0.0) }
         }
     }
+
+    @Test
+    fun migrate4To5StartsDaysWithData() {
+        helper.createDatabase(dbName, 4).apply {
+            execSQL(
+                "INSERT INTO log_entry (date, time, foodId, foodName, grams, kcal, protein, fat, carbs, inputMethod, meal) " +
+                    "VALUES ('2026-11-06', '08:30', NULL, 'Каша', 250, 300, 10, 5, 50, 'TEXT', 'BREAKFAST')",
+            )
+            execSQL(
+                "INSERT INTO activity_entry (date, time, type, minutes, description, kcal, source, createdAt) " +
+                    "VALUES ('2026-11-04', '10:00', 'RUN', 30, 'бег', 300, 'FORMULA', 0)",
+            )
+            // Flagged incomplete earlier, with entries; and a flag on a day without data.
+            execSQL("INSERT INTO day_status (date, incomplete) VALUES ('2026-11-06', 1)")
+            execSQL("INSERT INTO day_status (date, incomplete) VALUES ('2026-10-01', 1)")
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 5, true, Migrations.M4_5).use { db ->
+            db.query("SELECT date, incomplete, startedAt IS NOT NULL, closedAt IS NULL FROM day_status ORDER BY date").use {
+                val rows = buildList { while (it.moveToNext()) add(listOf(it.getString(0), it.getInt(1), it.getInt(2), it.getInt(3))) }
+                assertEquals(
+                    listOf(listOf("2026-10-01", 1, 0, 1), listOf("2026-11-04", 0, 1, 1), listOf("2026-11-06", 1, 1, 1)),
+                    rows,
+                )
+            }
+        }
+    }
 }

@@ -309,7 +309,14 @@ class ReviewViewModel(
                     is ReviewItem.Unresolved -> error("unreachable")
                 }
             }
-            val ids = if (entries.isEmpty()) emptyList() else logs.log(date, time, entries)
+            val ids = try {
+                if (entries.isEmpty()) emptyList() else logs.log(date, time, entries)
+            } catch (e: app.grammovka.data.repo.DayClosedException) {
+                // E.g. a deferred line from a day that has been closed since.
+                error = "${app.grammovka.ui.today.dayShort(date).replaceFirstChar { it.uppercase() }} закрыт. Откройте этот день для правки на «Сегодня» (меню ⋯) и запишите снова."
+                busy = false
+                return@launch
+            }
             if (pendingIds.isNotEmpty()) pending?.delete(pendingIds)
             if (ids.isNotEmpty()) events.emit(LoggedEvent(ids, ids.size, entries.sumOf { Nutrition.forGrams(it.per100, it.grams).kcal }))
             busy = false

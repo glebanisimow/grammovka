@@ -71,6 +71,8 @@ fun MealCard(
     onAdd: () -> Unit,
     onMenu: () -> Unit,
     onEntry: (LogEntryEntity) -> Unit,
+    /** A closed day: no menu, no «+ позиция», rows do not open the editor. */
+    readOnly: Boolean = false,
 ) {
     val kcal = block.items.sumOf { it.kcal }
     Column(cardModifier(target)) {
@@ -88,15 +90,17 @@ fun MealCard(
                 )
             }
             Text("${Fmt.kcal(kcal)} ккал", style = MaterialTheme.typography.titleMedium)
-            IconButton(onClick = onMenu) { Icon(GIcons.More, "Действия с приёмом") }
+            if (readOnly) Spacer(Modifier.width(12.dp)) else IconButton(onClick = onMenu) { Icon(GIcons.More, "Действия с приёмом") }
         }
         if (!collapsed) {
             block.items.forEach { e ->
                 HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                ItemRow(e) { onEntry(e) }
+                ItemRow(e, enabled = !readOnly) { onEntry(e) }
             }
-            HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            AddRow(onAdd)
+            if (!readOnly) {
+                HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                AddRow(onAdd)
+            }
         }
     }
 }
@@ -132,9 +136,9 @@ private fun AddRow(onAdd: () -> Unit) {
 }
 
 @Composable
-private fun ItemRow(e: LogEntryEntity, onClick: () -> Unit) {
+private fun ItemRow(e: LogEntryEntity, enabled: Boolean = true, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 52.dp).padding(horizontal = 12.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).heightIn(min = 52.dp).padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

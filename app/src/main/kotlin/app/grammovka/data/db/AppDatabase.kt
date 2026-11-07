@@ -20,7 +20,7 @@ class Converters {
 }
 
 @Database(
-    version = 4,
+    version = 5,
     exportSchema = true,
     entities = [
         FoodEntity::class,
@@ -100,5 +100,19 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(M1_2, M2_3, M3_4)
+    /**
+     * v5: day lifecycle (started / closed). Days that already have food or workouts count as started
+     * and stay open, so the user closes them explicitly.
+     */
+    val M4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `day_status` ADD COLUMN `startedAt` INTEGER")
+            db.execSQL("ALTER TABLE `day_status` ADD COLUMN `closedAt` INTEGER")
+            val days = "SELECT `date` FROM `log_entry` UNION SELECT `date` FROM `activity_entry`"
+            db.execSQL("INSERT OR IGNORE INTO `day_status` (`date`, `incomplete`) SELECT `date`, 0 FROM ($days)")
+            db.execSQL("UPDATE `day_status` SET `startedAt` = ${System.currentTimeMillis()} WHERE `date` IN ($days)")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(M1_2, M2_3, M3_4, M4_5)
 }

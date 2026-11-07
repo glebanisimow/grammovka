@@ -147,6 +147,10 @@ data class DayStatusEntity(
     @PrimaryKey val date: LocalDate,
     val incomplete: Boolean,
     val note: String? = null,
+    /** Set when the user starts the day (schema v5); null = never started. */
+    val startedAt: Long? = null,
+    /** Set when the day is closed: no more writes until it is reopened. */
+    val closedAt: Long? = null,
 )
 
 /** One value per date; a manual weigh-in replaces an imported one. */

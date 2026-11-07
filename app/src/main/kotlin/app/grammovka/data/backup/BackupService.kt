@@ -57,7 +57,9 @@ data class EntryDto(
     val meal: String? = null,
 )
 
-@Serializable data class DayStatusDto(val date: String, val incomplete: Boolean, val note: String? = null)
+@Serializable data class DayStatusDto(
+    val date: String, val incomplete: Boolean, val note: String? = null, val startedAt: Long? = null, val closedAt: Long? = null,
+)
 @Serializable data class WeightDto(val date: String, val kg: Double, val source: String)
 @Serializable data class LineDto(val foodId: Long, val grams: Double)
 @Serializable data class RecipeDto(val id: Long, val name: String, val cookedWeightG: Double, val foodId: Long? = null, val items: List<LineDto>)
@@ -74,7 +76,7 @@ data class SettingsDto(
 @Serializable
 data class BackupDto(
     val format: String = FORMAT,
-    val version: Int = 3,
+    val version: Int = 4,
     val exportedAt: Long,
     val foods: List<FoodDto>,
     val entries: List<EntryDto>,
@@ -119,7 +121,7 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
             entries = db.logDao().between(FIRST_DAY, LAST_DAY).map {
                 EntryDto(it.date.toString(), it.time.toString(), it.foodId, it.foodName, it.grams, it.kcal, it.protein, it.fat, it.carbs, it.inputMethod.name, it.note, it.meal?.name)
             },
-            dayStatus = db.dayStatusDao().all().map { DayStatusDto(it.date.toString(), it.incomplete, it.note) },
+            dayStatus = db.dayStatusDao().all().map { DayStatusDto(it.date.toString(), it.incomplete, it.note, it.startedAt, it.closedAt) },
             weights = db.weightDao().all().map { WeightDto(it.date.toString(), it.kg, it.source.name) },
             settings = s.toDto(),
             activities = db.activityDao().all().map {
@@ -167,7 +169,16 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
                     )
                 },
             )
-            dto.dayStatus.forEach { db.dayStatusDao().upsert(DayStatusEntity(LocalDate.parse(it.date), it.incomplete, it.note)) }
+            dto.dayStatus.forEach {
+                db.dayStatusDao().upsert(DayStatusEntity(LocalDate.parse(it.date), it.incomplete, it.note, it.startedAt, it.closedAt))
+            }
+            // Backups before v4 have no day lifecycle: a day with food or workouts counts as started (open).
+            val now = System.currentTimeMillis()
+            (dto.entries.map { it.date } + dto.activities.map { it.date }).distinct().forEach { d ->
+                val date = LocalDate.parse(d)
+                val s = db.dayStatusDao().get(date)
+                if (s?.startedAt == null) db.dayStatusDao().upsert((s ?: DayStatusEntity(date, incomplete = false)).copy(startedAt = now))
+            }
             dto.recipes.forEach { r ->
                 db.recipeDao().insert(RecipeEntity(r.id, r.name, r.cookedWeightG, r.foodId))
                 if (r.items.isNotEmpty()) db.recipeDao().insertItems(r.items.map { RecipeItemEntity(recipeId = r.id, foodId = it.foodId, grams = it.grams) })
@@ -231,7 +242,7 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
                 w.write(
                     listOf(
                         d, n(t?.kcal), n(t?.protein), n(t?.fat), n(t?.carbs), t?.entries ?: 0, statuses[d]?.incomplete == true,
-                        n(weights[d]?.kg), n(s?.trendWeight), n(s?.tdee), n(s?.target), n(workouts[d]),
+                        n(weights[d]?.kg), n(s?.trendWeight), n(s?.tdee), n(s?.target), n(workouts[d]), statuses[d]?.closedAt != null,
                     ).joinToString(","),
                 )
                 w.write("\n")
