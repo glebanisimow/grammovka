@@ -22,6 +22,8 @@ class FoodRepository(private val dao: FoodDao, private val clock: () -> Long = S
 
     override suspend fun portions(foodId: Long): List<PortionDef> = dao.portions(foodId).map { PortionDef(it.name, it.grams) }
 
+    suspend fun portionEntities(foodId: Long): List<PortionEntity> = dao.portions(foodId)
+
     fun observePortions(foodId: Long): Flow<List<PortionEntity>> = dao.observePortions(foodId)
 
     fun observeCatalog(archived: Boolean): Flow<List<FoodEntity>> = dao.observeAll(archived)
