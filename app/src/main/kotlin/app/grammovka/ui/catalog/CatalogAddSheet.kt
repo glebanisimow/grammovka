@@ -45,7 +45,7 @@ import app.grammovka.ui.today.dayShort
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CatalogAddSheet(c: AddContext, onDismiss: () -> Unit, onEdit: () -> Unit, onAdd: (grams: Double, meal: Meal) -> Unit) {
+fun CatalogAddSheet(c: AddContext, onDismiss: () -> Unit, onEdit: (() -> Unit)?, onAdd: (grams: Double, meal: Meal) -> Unit) {
     val f = c.food
     val per100 = Nutrients(f.kcal, f.protein, f.fat, f.carbs, f.fiber)
     var grams by remember { mutableStateOf(c.lastGrams?.input().orEmpty()) }
@@ -105,8 +105,10 @@ fun CatalogAddSheet(c: AddContext, onDismiss: () -> Unit, onEdit: () -> Unit, on
                     Text("Добавить в ${meal.ru}")
                 }
             }
-            TextButton(onClick = onEdit, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Text(if (f.source == FoodSource.RECIPE) "Изменить рецепт" else "Изменить продукт", color = GTheme.extra.accentText)
+            if (onEdit != null) {
+                TextButton(onClick = onEdit, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Text(if (f.source == FoodSource.RECIPE) "Изменить рецепт" else "Изменить продукт", color = GTheme.extra.accentText)
+                }
             }
         }
     }

@@ -90,7 +90,7 @@ data class AddContext(
 )
 
 /** A food logged from the catalog, for the «Отменить» snackbar. */
-data class CatalogLogged(val ids: List<Long>, val text: String)
+data class CatalogLogged(val ids: List<Long>, val text: String, val kcal: Double)
 
 @OptIn(FlowPreview::class)
 class CatalogViewModel(private val foods: FoodRepository, private val logs: LogRepository) : ViewModel() {
@@ -119,12 +119,15 @@ class CatalogViewModel(private val foods: FoodRepository, private val logs: LogR
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CatalogList())
 
-    /** The day the app is filling in (the latest open day, otherwise today) and the meal the input line would use. */
-    suspend fun addContext(f: FoodEntity): AddContext {
+    /**
+     * The day the app is filling in (the latest open day, otherwise today) and the meal the input line would use;
+     * «+ позиция» on Today passes its own [day] and the card's [meal].
+     */
+    suspend fun addContext(f: FoodEntity, day: LocalDate? = null, meal: Meal? = null): AddContext {
         val today = LocalDate.now()
-        val day = logs.defaultDay(today)
+        val day = day ?: logs.defaultDay(today)
         val entries = logs.observeDay(day).first()
-        val meal = if (day == today) {
+        val meal = meal ?: if (day == today) {
             MealBlocks.defaultTarget(MealBlocks.group(entries, { it.time }, { it.meal }), { it.time }, LocalTime.now())
         } else {
             Meal.SNACK
@@ -144,7 +147,8 @@ class CatalogViewModel(private val foods: FoodRepository, private val logs: LogR
             return null
         }
         val where = if (c.day == c.today) meal.ru else "${meal.ru}, ${dayShort(c.day)}"
-        return CatalogLogged(ids, "Записано в $where: ${f.name} ${Fmt.kcal(grams)} г · ${Fmt.kcal(Nutrition.forGrams(per100, grams).kcal)} ккал")
+        val kcal = Nutrition.forGrams(per100, grams).kcal
+        return CatalogLogged(ids, "Записано в $where: ${f.name} ${Fmt.kcal(grams)} г · ${Fmt.kcal(kcal)} ккал", kcal)
     }
 
     fun undo(ids: List<Long>) {
@@ -253,7 +257,7 @@ fun CatalogScreen(container: AppContainer, onOpen: (FoodEntity) -> Unit, onCreat
 }
 
 @Composable
-private fun FoodRow(f: FoodEntity, onClick: () -> Unit) {
+internal fun FoodRow(f: FoodEntity, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,

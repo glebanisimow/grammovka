@@ -63,6 +63,9 @@ class AppContainer(context: Context) {
     /** Set by the weekly-review notification tap: the Monday (ISO date) of the week to open; AppRoot consumes it. */
     val openWeekly = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
+    /** CaptureMode name the user switched to last; the camera button on Today opens in it (not persisted). */
+    var lastCaptureMode: String = "BARCODE"
+
     /** Widget buttons: GrammovkaWidget.ACTION_ADD / ACTION_SCAN, consumed by AppRoot and Today. */
     val widgetAction = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val healthRepository by lazy { app.grammovka.data.health.HealthRepository(appContext, database) }

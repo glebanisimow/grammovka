@@ -6,6 +6,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.derivedStateOf
+import app.grammovka.ui.catalog.AddContext
+import app.grammovka.ui.catalog.CatalogAddSheet
+import app.grammovka.ui.catalog.CatalogViewModel
+import app.grammovka.ui.catalog.FoodPickerSheet
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -95,8 +102,7 @@ private val dayFmt = DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.forLangu
 fun TodayScreen(
     container: AppContainer,
     onReview: (ReviewRequest) -> Unit,
-    onScan: (LocalDate, Meal) -> Unit,
-    onLabel: (LocalDate, Meal) -> Unit,
+    onCapture: (LocalDate, Meal) -> Unit,
     onOpenProfile: () -> Unit,
     onOpenPending: () -> Unit,
 ) {
@@ -116,6 +122,17 @@ fun TodayScreen(
     /** Close dialog: null = hidden; true = close and then start / move to today (the «not today» banner). */
     var closeDialog by remember { mutableStateOf<Boolean?>(null) }
     var reopenDialog by remember { mutableStateOf(false) }
+    var budgetDialog by remember { mutableStateOf(false) }
+    /** «+ позиция»: the catalog picker for this meal, then the grams sheet for the picked food. */
+    var pickerMeal by remember { mutableStateOf<Meal?>(null) }
+    var pickerAdd by remember { mutableStateOf<AddContext?>(null) }
+    val picker: CatalogViewModel = viewModel(key = "picker", factory = viewModelFactory { initializer { CatalogViewModel(container.foodRepository, container.logRepository) } })
+    val openPicker: (Meal) -> Unit = { m -> vm.pickTarget(m); picker.query.value = ""; pickerMeal = m }
+    val listState = rememberLazyListState()
+    /** The budget block has scrolled away: keep its headline in a thin bar on top. */
+    val pinned by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 && listState.layoutInfo.visibleItemsInfo.none { it.key == BUDGET_KEY } }
+    }
     androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
         vm.refreshToday()
         onPauseOrDispose {}
@@ -159,6 +176,12 @@ fun TodayScreen(
         }
     }
     LaunchedEffect(Unit) {
+        vm.entryDeletions.collect { e ->
+            val r = snackbar.showSnackbar("Удалено: ${e.foodName}", actionLabel = "Отменить", duration = SnackbarDuration.Short)
+            if (r == SnackbarResult.ActionPerformed) vm.restoreEntry(e)
+        }
+    }
+    LaunchedEffect(Unit) {
         vm.deletions.collect { b ->
             val r = snackbar.showSnackbar("Удалено: ${b.meal.ru}", actionLabel = "Отменить", duration = SnackbarDuration.Short)
             if (r == SnackbarResult.ActionPerformed) vm.restore(b)
@@ -167,16 +190,17 @@ fun TodayScreen(
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().imePadding()) {
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
-                item { DayHeader(ui, onCalendar = { monthSheet = true }, onReopen = { reopenDialog = true }) }
-                item { WeekStrip(ui, vm::select) }
+            LazyColumn(Modifier.weight(1f), state = listState, contentPadding = PaddingValues(bottom = 16.dp)) {
                 val open = ui.state == app.grammovka.domain.log.DayState.OPEN
                 val closed = ui.state == app.grammovka.domain.log.DayState.CLOSED
+                item { DayHeader(ui, onCalendar = { monthSheet = true }, onReopen = { reopenDialog = true }, onClose = { closeDialog = false }) }
+                item { WeekStrip(ui, vm::select) }
                 if (open && ui.date != ui.today) item { NotTodayBanner(ui) { closeDialog = true } }
                 if (ui.state == app.grammovka.domain.log.DayState.NONE) {
                     item { NotStarted(ui) { vm.startDay(ui.date) } }
                 } else {
-                    item { Budget(ui, onOpenProfile, onWeight = { if (open) weightDialog = true }) }
+                    // The weight can be entered for a closed day too: it is not part of the food log.
+                    item(key = BUDGET_KEY) { Budget(ui, onOpenProfile, onWeight = { weightDialog = true }, onExplain = { budgetDialog = true }) }
                     if (open && ui.pending > 0) {
                         item {
                             Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
@@ -184,9 +208,8 @@ fun TodayScreen(
                             }
                         }
                     }
-                    if (open && ui.offerReminder) item { ReminderOffer(vm) }
-                    if (open && (ui.chips.isNotEmpty() || ui.repeats.isNotEmpty() || ui.templates.isNotEmpty() || ui.entries.isNotEmpty())) {
-                        item { Chips(ui, vm, onTemplates = { templatesDialog = true }) }
+                    if (open && (ui.chips.isNotEmpty() || ui.repeats.isNotEmpty() || ui.templates.isNotEmpty())) {
+                        item { Chips(ui, vm) }
                     }
                     if (ui.entries.isEmpty() && ui.openCards.isEmpty()) {
                         item {
@@ -203,7 +226,7 @@ fun TodayScreen(
                     val cards: List<Pair<java.time.LocalTime, Any>> = (ui.blocks.map { it.start to it } + ui.openCards.map { it.at to it }).sortedBy { it.first }
                     items(cards, key = { (_, c) -> if (c is OpenCard) "o" + c.meal else (c as MealBlock<*>).let { "b" + it.meal + (it.items.first() as LogEntryEntity).id } }) { (_, c) ->
                         if (c is OpenCard) {
-                            EmptyMealCard(c, target = ui.target == c.meal, onAdd = { vm.pickTarget(c.meal); focusInput() }, onClose = { vm.closeCard(c.meal) })
+                            EmptyMealCard(c, target = ui.target == c.meal, onAdd = { openPicker(c.meal) }, onClose = { vm.closeCard(c.meal) })
                         } else {
                             @Suppress("UNCHECKED_CAST") val b = c as MealBlock<LogEntryEntity>
                             val key = "b" + b.meal + b.items.first().id
@@ -211,10 +234,7 @@ fun TodayScreen(
                             MealCard(
                                 b, isTarget, collapsed[key] == true,
                                 onToggle = { collapsed[key] = collapsed[key] != true },
-                                onAdd = {
-                                    // Adding to an earlier snack card: entries go in at its time so they land in it.
-                                    vm.pickTarget(b.meal); focusInput()
-                                },
+                                onAdd = { openPicker(b.meal) },
                                 onMenu = { cardMenu = b },
                                 onEntry = { editEntry = it },
                                 readOnly = closed,
@@ -226,18 +246,15 @@ fun TodayScreen(
                     }
                     if (open) {
                         item {
-                            Row {
+                            FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 AddMealButton { m -> vm.openCard(m); focusInput() }
-                                Box(Modifier.padding(vertical = 8.dp)) {
-                                    androidx.compose.material3.OutlinedButton(onClick = { activitySheet = ActivitySheetState(null, null) }, shape = MaterialTheme.shapes.small) {
-                                        Icon(GIcons.Pulse, null, Modifier.size(16.dp))
-                                        Spacer(Modifier.width(8.dp))
-                                        Text("Тренировка")
-                                    }
-                                }
+                                DayAction(GIcons.Pulse, "Тренировка") { activitySheet = ActivitySheetState(null, null) }
+                                DayAction(GIcons.Bookmark, "Шаблоны") { templatesDialog = true }
                             }
                         }
                         item { CloseDayButton { closeDialog = false } }
+                        // A one-time offer, not part of the day: below everything the user works with.
+                        if (ui.offerReminder) item { ReminderOffer(vm) }
                     }
                     if (closed) item { ClosedFooter(ui, onStartToday = { vm.startDay(ui.today) }, onGoToday = { vm.select(ui.today) }) }
                 }
@@ -248,14 +265,43 @@ fun TodayScreen(
                     busy,
                     focusSignal = container.widgetAction,
                     onSubmit = { text, method, clear -> vm.submit(text, { r -> clear(); onReview(r) }, method) { clear() } },
-                    onScan = { onScan(ui.date, ui.target) }, onLabel = { onLabel(ui.date, ui.target) },
+                    onCapture = { onCapture(ui.date, ui.target) },
                     onMessage = { msg -> scope.launch { snackbar.showSnackbar(msg, duration = SnackbarDuration.Short) } },
                 )
             }
         }
+        if (pinned && ui.state != app.grammovka.domain.log.DayState.NONE) PinnedBudget(ui, Modifier.align(Alignment.TopCenter))
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp))
     }
 
+    if (budgetDialog) BudgetDialog(ui, onDismiss = { budgetDialog = false })
+    val adding = pickerAdd
+    if (pickerMeal != null && adding == null) {
+        FoodPickerSheet(
+            picker, pickerMeal!!,
+            onDismiss = { pickerMeal = null },
+            onPick = { f -> scope.launch { pickerAdd = picker.addContext(f, day = ui.date, meal = pickerMeal) } },
+            onTypeInstead = { pickerMeal = null; focusInput() },
+        )
+    }
+    if (adding != null) {
+        CatalogAddSheet(
+            adding, onDismiss = { pickerAdd = null }, onEdit = null,
+            onAdd = { grams, meal ->
+                pickerAdd = null
+                picker.query.value = ""
+                scope.launch {
+                    val logged = picker.add(adding, grams, meal)
+                    if (logged != null) {
+                        container.logEvents.emit(app.grammovka.ui.review.LoggedEvent(logged.ids, logged.ids.size, logged.kcal))
+                    } else {
+                        pickerMeal = null
+                        snackbar.showSnackbar("${dayShort(adding.day).replaceFirstChar { it.uppercase() }} закрыт: запись не добавлена.")
+                    }
+                }
+            },
+        )
+    }
     activitySheet?.let { st ->
         ActivitySheet(
             editing = st.editing, body = ui.body, initialText = st.text,
@@ -302,106 +348,16 @@ fun TodayScreen(
     }
 }
 
-@Composable
-private fun Budget(ui: TodayUi, onOpenProfile: () -> Unit, onWeight: () -> Unit) {
-    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        val m = ui.model
-        when {
-            !ui.profileComplete -> Notice("Заполните профиль: пол, год рождения и рост нужны, чтобы считать бюджет.", "Открыть профиль", onOpenProfile)
-            m == null -> Notice("Введите вес: с первого взвешивания появится цель на день.", "Ввести вес", onWeight)
-            else -> {
-                val b = m.balance(ui.eaten.kcal)
-                val left = b.left
-                if (ui.state == app.grammovka.domain.log.DayState.CLOSED) {
-                    // A closed day shows its result: the balance against the day's expenditure.
-                    // In words, not as a signed «баланс»: a minus sign alone does not say which way is good.
-                    Text(
-                        when {
-                            b.balance < -0.5 -> "ДЕФИЦИТ ДНЯ"
-                            b.balance > 0.5 -> "ПРОФИЦИТ ДНЯ"
-                            else -> "ИТОГ ДНЯ"
-                        },
-                        style = MaterialTheme.typography.labelMedium, color = GTheme.extra.textMuted,
-                    )
-                    Text(
-                        Fmt.kcal(abs(b.balance)), style = NumberHero,
-                        color = if (b.balance > 0.5) MaterialTheme.colorScheme.error else GTheme.extra.success,
-                    )
-                    Text(
-                        "съедено ${Fmt.kcal(ui.eaten.kcal)} − расход ≈ ${Fmt.kcal(b.expenditure)}" +
-                            if (m.activity > 0) " (норма ${Fmt.kcal(m.snapshot.tdee)} + тренировки ${Fmt.kcal(m.activity)})" else "",
-                        style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
-                    )
-                    Text(
-                        "Бюджет был ${Fmt.kcal(m.allowance + m.activity)}: " +
-                            if (left >= 0) "осталось ${Fmt.kcal(left)}" else "сверх на ${Fmt.kcal(-left)}",
-                        style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
-                    )
-                } else {
-                    Text(if (left >= 0) "ОСТАЛОСЬ" else "СВЕРХ БЮДЖЕТА", style = MaterialTheme.typography.labelMedium, color = GTheme.extra.textMuted)
-                    Text(Fmt.kcal(abs(left)), style = NumberHero, color = if (left >= 0) GTheme.extra.accentText else MaterialTheme.colorScheme.error)
-                    Text(
-                        if (m.activity > 0) "из ${Fmt.kcal(m.allowance)} + ${Fmt.kcal(m.activity)} тренировки · съедено ${Fmt.kcal(ui.eaten.kcal)}"
-                        else "из ${Fmt.kcal(m.allowance)} ккал · съедено ${Fmt.kcal(ui.eaten.kcal)}",
-                        style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
-                    )
-                    Text(
-                        "Расход дня ≈ ${Fmt.kcal(b.expenditure)}" +
-                            (if (m.activity > 0) " (норма ${Fmt.kcal(m.snapshot.tdee)} + тренировки ${Fmt.kcal(m.activity)})" else "") +
-                            " · сейчас ${balanceWords(b.balance)}",
-                        style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
-                    )
-                }
-                val p = m.snapshot.proteinTarget
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Белок", style = MaterialTheme.typography.titleSmall)
-                    Text("${Fmt.kcal(ui.eaten.protein)} / ${Fmt.kcal(p)} г", style = MaterialTheme.typography.titleSmall)
-                }
-                LinearProgressIndicator(
-                    progress = { (ui.eaten.protein / p).toFloat().coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    drawStopIndicator = {},
-                )
-                Text(
-                    "Жиры ${Fmt.kcal(ui.eaten.fat)} г · Углеводы ${Fmt.kcal(ui.eaten.carbs)} г",
-                    style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
-                )
-                Flags(m)
-            }
-        }
-        Row(
-            Modifier.fillMaxWidth().clickable(onClick = onWeight).heightIn(min = 48.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(GIcons.Scale, null, tint = GTheme.extra.textMuted)
-            Spacer(Modifier.width(12.dp))
-            Text(
-                ui.weightKg?.let { "Вес ${Fmt.kg(it)} кг" } ?: "Вес не введён",
-                Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
-            )
-            m?.let { Text("тренд ${Fmt.kg(it.snapshot.trendWeight)}", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted) }
-        }
-    }
-}
+private const val BUDGET_KEY = "budget"
 
+/** «Тренировка», «Шаблоны»: day-level actions next to «+ Приём пищи». */
 @Composable
-private fun Flags(m: app.grammovka.data.repo.DayModel) {
-    val lines = buildList {
-        if (m.snapshot.capped) add("Дефицит ограничен 25 % расхода.")
-        if (m.snapshot.bmrFloor) add("Цель поднята до уровня BMR (${Fmt.kcal(m.snapshot.bmr)} ккал).")
-        m.warnings.forEach {
-            add(
-                when (it) {
-                    Warning.RATE_TOO_HIGH -> "Темп в профиле выше 1 % массы в неделю."
-                    Warning.LOSING_TOO_FAST -> "За 4 недели вес снижается в 1,5 раза быстрее цели. Можно есть больше."
-                    Warning.PROTEIN_LOW -> "Белок ниже цели 5 из последних 7 дней."
-                },
-            )
-        }
+private fun DayAction(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, onClick: () -> Unit) {
+    androidx.compose.material3.OutlinedButton(onClick = onClick, shape = MaterialTheme.shapes.small) {
+        Icon(icon, null, Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(text)
     }
-    lines.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = GTheme.extra.accentText) }
 }
 
 /** Contextual permission request: notifications are asked for only when the user turns the question on. */
@@ -428,7 +384,7 @@ private fun ReminderOffer(vm: TodayViewModel) {
 }
 
 @Composable
-private fun Notice(text: String, action: String, onClick: () -> Unit) {
+internal fun Notice(text: String, action: String, onClick: () -> Unit) {
     Column(
         Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -438,9 +394,9 @@ private fun Notice(text: String, action: String, onClick: () -> Unit) {
     }
 }
 
-/** One-tap shortcuts: repeat yesterday's meals, templates, recent foods; the last chip manages templates. */
+/** One-tap shortcuts: repeat yesterday's meals, templates, recent foods. Templates are managed from «Шаблоны» below the cards. */
 @Composable
-private fun Chips(ui: TodayUi, vm: TodayViewModel, onTemplates: () -> Unit) {
+private fun Chips(ui: TodayUi, vm: TodayViewModel) {
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(ui.repeats, key = { "r" + it.meal.name }) { r ->
             SuggestionChip(
@@ -460,14 +416,6 @@ private fun Chips(ui: TodayUi, vm: TodayViewModel, onTemplates: () -> Unit) {
         }
         items(ui.chips, key = { "f" + it.foodId }) { c ->
             SuggestionChip(onClick = { vm.repeat(c) }, label = { Text("${c.name} · ${Fmt.kcal(c.grams)} г") }, shape = MaterialTheme.shapes.small)
-        }
-        item(key = "manage") {
-            SuggestionChip(
-                onClick = onTemplates,
-                icon = { Icon(GIcons.Plus, null, Modifier.size(16.dp)) },
-                label = { Text("шаблон") },
-                shape = MaterialTheme.shapes.small,
-            )
         }
     }
 }
@@ -541,8 +489,7 @@ private fun InputBar(
     busy: Boolean,
     focusSignal: kotlinx.coroutines.flow.MutableStateFlow<String?>,
     onSubmit: (String, InputMethod, () -> Unit) -> Unit,
-    onScan: () -> Unit,
-    onLabel: () -> Unit,
+    onCapture: () -> Unit,
     onMessage: (String) -> Unit,
 ) {
     var text by rememberSaveable { mutableStateOf("") }
@@ -586,7 +533,7 @@ private fun InputBar(
         OutlinedTextField(
             value = if (voice.listening) voice.partial else text, onValueChange = { text = it },
             modifier = Modifier.weight(1f).focusRequester(focus),
-            placeholder = { Text(if (voice.listening) "Говорите, в конце нажмите микрофон" else "творог 150, кофе с молоком…") },
+            placeholder = { Text(if (voice.listening) "Говорите, в конце нажмите микрофон" else "Что съели?", maxLines = 1) },
             maxLines = 3,
             enabled = !busy && !voice.listening,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -599,8 +546,8 @@ private fun InputBar(
                 tint = if (voice.listening) MaterialTheme.colorScheme.primary else LocalContentColor.current,
             )
         }
-        IconButton(onClick = onScan, Modifier.size(48.dp)) { Icon(GIcons.Barcode, "Сканер штрихкода") }
-        IconButton(onClick = onLabel, Modifier.size(48.dp)) { Icon(GIcons.Camera, "Фото этикетки") }
+        // One camera button: the capture screen itself switches between barcode, label and photo.
+        IconButton(onClick = onCapture, Modifier.size(48.dp)) { Icon(GIcons.Camera, "Сканер штрихкода, этикетка или фото еды") }
     }
 }
 
@@ -636,15 +583,16 @@ private fun EntryDialog(e: LogEntryEntity, onDismiss: () -> Unit, onSave: (Doubl
                 NumberField(v, { v = it }, "Вес", suffix = "г", imeAction = ImeAction.Done)
                 Text("Калории пересчитаются из сохранённых в записи цифр.", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
                 MealChips(meal, { meal = it ?: Meal.SNACK })
+                // Away from «Отмена» and «Сохранить»; the deletion can be undone from the snackbar.
+                TextButton(onClick = onDelete, contentPadding = PaddingValues(0.dp)) {
+                    Icon(GIcons.Trash, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Удалить запись", color = MaterialTheme.colorScheme.error)
+                }
             }
         },
         confirmButton = { TextButton(onClick = { onSave(g!!, meal) }, enabled = g != null && g > 0) { Text("Сохранить") } },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onDelete) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
-                TextButton(onClick = onDismiss) { Text("Отмена") }
-            }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )
 }
 

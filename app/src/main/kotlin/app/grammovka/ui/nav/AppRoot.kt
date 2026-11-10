@@ -151,8 +151,8 @@ fun AppRoot(container: AppContainer) {
                 TodayScreen(
                     container,
                     onReview = { container.reviewInbox.pending = it; nav.navigate(ReviewRoute) },
-                    onScan = { d, m -> nav.navigate(CaptureRoute(d.toString(), CaptureMode.BARCODE.name, m.name)) },
-                    onLabel = { d, m -> nav.navigate(CaptureRoute(d.toString(), CaptureMode.LABEL.name, m.name)) },
+                    // Opens in the mode used last (barcode at first): one button instead of scanner and camera.
+                    onCapture = { d, m -> nav.navigate(CaptureRoute(d.toString(), container.lastCaptureMode, m.name)) },
                     onOpenProfile = { nav.navigate(ProfileRoute) },
                     onOpenPending = openPending,
                 )

@@ -368,7 +368,19 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.logRepository.delete(ids) }
     }
 
-    fun deleteEntry(e: LogEntryEntity) = undo(listOf(e.id))
+    /** Deleted single entries, for the «Отменить» snackbar (a whole card has [deletions]). */
+    val entryDeletions = kotlinx.coroutines.flow.MutableSharedFlow<LogEntryEntity>(extraBufferCapacity = 1)
+
+    fun deleteEntry(e: LogEntryEntity) {
+        viewModelScope.launch {
+            c.logRepository.delete(listOf(e.id))
+            entryDeletions.emit(e)
+        }
+    }
+
+    fun restoreEntry(e: LogEntryEntity) {
+        viewModelScope.launch { c.logRepository.restore(listOf(e)) }
+    }
 
     fun updateGrams(e: LogEntryEntity, grams: Double) {
         viewModelScope.launch { c.logRepository.updateGrams(e, grams) }

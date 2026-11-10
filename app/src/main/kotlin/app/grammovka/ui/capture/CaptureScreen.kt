@@ -305,7 +305,7 @@ fun CaptureScreen(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CaptureMode.entries.forEach { m ->
-                            FilterChip(selected = mode == m, onClick = { mode = m }, label = { Text(m.ru) })
+                            FilterChip(selected = mode == m, onClick = { mode = m; container.lastCaptureMode = m.name }, label = { Text(m.ru) })
                         }
                     }
                 }

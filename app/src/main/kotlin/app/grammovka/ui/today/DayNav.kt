@@ -76,7 +76,7 @@ private fun balanceColor(v: Double): Color = if (v > 0.5) MaterialTheme.colorSch
 
 /** Day title (tap → month calendar) with the lifecycle mark and, for a closed day, the hidden «reopen». */
 @Composable
-fun DayHeader(ui: TodayUi, onCalendar: () -> Unit, onReopen: () -> Unit) {
+fun DayHeader(ui: TodayUi, onCalendar: () -> Unit, onReopen: () -> Unit, onClose: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f).clickable(onClick = onCalendar).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -96,7 +96,12 @@ fun DayHeader(ui: TodayUi, onCalendar: () -> Unit, onReopen: () -> Unit) {
                     }
                 }
             }
-            DayState.OPEN -> Text("открыт", Modifier.padding(end = 12.dp), style = MaterialTheme.typography.labelMedium, color = GTheme.extra.accentText)
+            // The state doubles as the action: closing the day should not need a scroll to the bottom.
+            DayState.OPEN -> TextButton(onClick = onClose, Modifier.padding(end = 4.dp)) {
+                Icon(GIcons.Lock, null, Modifier.size(16.dp), tint = GTheme.extra.accentText)
+                Spacer(Modifier.width(6.dp))
+                Text("Закрыть", style = MaterialTheme.typography.labelLarge, color = GTheme.extra.accentText)
+            }
             DayState.NONE -> Spacer(Modifier.width(12.dp))
         }
     }
