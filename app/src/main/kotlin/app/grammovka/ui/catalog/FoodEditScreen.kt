@@ -1,6 +1,8 @@
 package app.grammovka.ui.catalog
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import app.grammovka.ui.common.DiscardDialog
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,6 +41,16 @@ fun FoodEditScreen(container: AppContainer, id: Long?, barcode: String?, onBack:
     var state by remember { mutableStateOf<FoodFormState?>(null) }
     var archived by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var loadedSignature by remember { mutableStateOf<String?>(null) }
+    var confirmLeave by remember { mutableStateOf(false) }
+    val leave = { if (state != null && state?.signature() != loadedSignature) confirmLeave = true else onBack() }
+    BackHandler(onBack = leave)
+    if (confirmLeave) {
+        DiscardDialog(
+            "Выйти без сохранения?", "Изменения в продукте не сохранятся.", "Выйти",
+            onDiscard = { confirmLeave = false; onBack() }, onStay = { confirmLeave = false },
+        )
+    }
 
     LaunchedEffect(id) {
         state = if (id == null) {
@@ -48,11 +60,12 @@ fun FoodEditScreen(container: AppContainer, id: Long?, barcode: String?, onBack:
             archived = container.foodRepository.byId(id)?.archived == true
             container.foodRepository.draftOf(id)?.let(::FoodFormState)
         }
+        loadedSignature = state?.signature()
     }
 
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(GIcons.Back, contentDescription = "Назад") }
+            IconButton(onClick = leave) { Icon(GIcons.Back, contentDescription = "Назад") }
             Text(if (id == null) "Новый продукт" else "Продукт", style = MaterialTheme.typography.headlineSmall)
         }
         val s = state ?: return@Column

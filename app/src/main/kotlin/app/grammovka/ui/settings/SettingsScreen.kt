@@ -29,6 +29,7 @@ import app.grammovka.data.settings.AppSettings
 import app.grammovka.data.settings.ThemeMode
 import app.grammovka.di.AppContainer
 import app.grammovka.ui.common.ScreenTitle
+import app.grammovka.ui.common.SectionLabel
 import app.grammovka.ui.icons.GIcons
 import app.grammovka.ui.theme.GTheme
 import app.grammovka.update.AppUpdateSection
@@ -62,8 +63,9 @@ fun SettingsScreen(container: AppContainer, onOpenKeys: () -> Unit, onOpenProfil
             }
         }
         HorizontalDivider(Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        // Both are notifications: one block, one heading.
+        SectionLabel("Уведомления", Modifier.padding(top = 8.dp))
         ReminderSection(container)
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         WeeklySection(container)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         HealthSection(container)

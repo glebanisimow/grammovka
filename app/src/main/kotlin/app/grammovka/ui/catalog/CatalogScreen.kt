@@ -270,7 +270,10 @@ internal fun FoodRow(f: FoodEntity, onClick: () -> Unit) {
             )
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("${Fmt.kcal(f.kcal)} ккал", style = MaterialTheme.typography.titleSmall)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("${Fmt.kcal(f.kcal)} ккал", style = MaterialTheme.typography.titleSmall)
+                Text(" / 100 г", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
+            }
             SourceBadge(f.source, f.confidence)
         }
     }

@@ -3,7 +3,17 @@ package app.grammovka.ui.review
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import app.grammovka.ui.common.DiscardDialog
+import app.grammovka.ui.common.ValidatorLine
+import app.grammovka.ui.today.plural
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,9 +54,19 @@ fun ReviewScreen(
     extraActions: @Composable (ReviewItem.Unresolved) -> Unit = {},
     status: @Composable () -> Unit = {},
 ) {
+    // Found by Claude, scanned or read from a label: leaving throws away work that cost time or money, so ask first.
+    var confirmLeave by remember { mutableStateOf(false) }
+    val leave = { if (!vm.busy && vm.items.any { it is ReviewItem.NewFood }) confirmLeave = true else onBack() }
+    BackHandler(onBack = leave)
+    if (confirmLeave) {
+        DiscardDialog(
+            "Выйти без записи?", "Найденные продукты и введённые цифры не сохранятся.", "Выйти",
+            onDiscard = { confirmLeave = false; onBack() }, onStay = { confirmLeave = false },
+        )
+    }
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(GIcons.Back, contentDescription = "Назад") }
+            IconButton(onClick = leave) { Icon(GIcons.Back, contentDescription = "Назад") }
             Text("Проверьте и запишите", style = MaterialTheme.typography.headlineSmall)
         }
         status()
@@ -70,7 +90,10 @@ fun ReviewScreen(
                 enabled = !vm.busy && vm.items.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.small,
-            ) { Text("Записать · ${vm.items.size} · ${Fmt.kcal(total)} ккал") }
+            ) {
+                val n = vm.items.size
+                Text(if (n == 0) "Записать" else "Записать $n ${plural(n, "позицию", "позиции", "позиций")} · ${Fmt.kcal(total)} ккал")
+            }
         }
     }
 }
@@ -138,7 +161,26 @@ private fun MatchedBody(vm: ReviewViewModel, item: ReviewItem.Matched) {
 private fun NewFoodBody(vm: ReviewViewModel, item: ReviewItem.NewFood) {
     Text("Новый продукт", style = MaterialTheme.typography.titleSmall, color = GTheme.extra.accentText)
     item.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted) }
-    FoodFormFields(item.form)
+    if (item.expanded) {
+        FoodFormFields(item.form)
+    } else {
+        // Collapsed: what will be saved, its source and the validator; every field is one tap away (invariant 2).
+        val f = item.form
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(listOf(f.name, f.brand).filter { it.isNotBlank() }.joinToString(", "), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "${f.kcal} ккал / 100 г · Б ${f.protein} · Ж ${f.fat} · У ${f.carbs}",
+                    style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+                )
+            }
+            SourceBadge(f.source, f.confidence)
+        }
+        ValidatorLine(f.nutrients)
+        TextButton(onClick = { item.expanded = true }, contentPadding = PaddingValues(0.dp)) {
+            Text("Изменить название, цифры, порции", color = GTheme.extra.accentText)
+        }
+    }
     Row(Modifier.clickable { item.save = !item.save }, verticalAlignment = Alignment.CenterVertically) {
         Checkbox(checked = item.save, onCheckedChange = { item.save = it })
         Text("Сохранить в каталог", style = MaterialTheme.typography.bodyMedium)

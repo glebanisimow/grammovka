@@ -22,6 +22,11 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import app.grammovka.ui.common.WeightDialog
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
@@ -43,6 +48,11 @@ import java.util.Locale
 
 private val ranges = listOf(30 to "30 дней", 90 to "90 дней", 365 to "Год")
 private val weekFmt = DateTimeFormatter.ofPattern("d MMM", Locale.forLanguageTag("ru"))
+private val dayFmt = DateTimeFormatter.ofPattern("EE, d MMM", Locale.forLanguageTag("ru"))
+private val dayYearFmt = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag("ru"))
+
+/** «вт, 10 нояб.»; with the year for dates outside the current one. */
+private fun dayLabel(d: LocalDate, today: LocalDate): String = if (d.year == today.year) d.format(dayFmt) else d.format(dayYearFmt)
 
 /** Charts from ModelSnapshot and the log (spec, phase 2), the weekly table and the model's numbers. */
 @Composable
@@ -64,6 +74,8 @@ fun ProgressScreen(container: AppContainer, onOpenWeekly: () -> Unit) {
         }.getOrNull()
     }
     val days = state?.days.orEmpty()
+    val scope = rememberCoroutineScope()
+    var editWeight by remember { mutableStateOf<app.grammovka.data.db.WeightEntryEntity?>(null) }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { ScreenTitle("Прогресс") }
@@ -194,10 +206,18 @@ fun ProgressScreen(container: AppContainer, onOpenWeekly: () -> Unit) {
         item { SectionLabel("Взвешивания") }
         if (weights.isEmpty()) {
             item { Text("Пока нет. Вес вводится на экране «Сегодня».", Modifier.padding(horizontal = 16.dp), color = GTheme.extra.textMuted) }
+        } else {
+            item { Note("Нажмите на взвешивание, чтобы исправить или удалить его.") }
         }
         items(weights.reversed().take(60), key = { it.date.toString() }) { w ->
             val trend = snaps[w.date]?.trendWeight
-            Line(w.date.toString(), "${Fmt.kg(w.kg)} кг", trend?.let { "тренд ${Fmt.kg(it)}" })
+            Line(dayLabel(w.date, today), "${Fmt.kg(w.kg)} кг", trend?.let { "тренд ${Fmt.kg(it)}" }, onClick = { editWeight = w })
+        }
+    }
+    editWeight?.let { w ->
+        WeightDialog(w.kg, onDismiss = { editWeight = null }, title = "Вес · ${dayLabel(w.date, today)}") { kg ->
+            editWeight = null
+            scope.launch { if (kg == null) container.weightRepository.delete(w.date) else container.weightRepository.setManual(w.date, kg) }
         }
     }
 }
@@ -229,8 +249,11 @@ private fun WeekLine(week: String, complete: String, kcal: String, target: Strin
 }
 
 @Composable
-private fun Line(label: String, value: String, note: String? = null) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+private fun Line(label: String, value: String, note: String? = null, onClick: (() -> Unit)? = null) {
+    Column(
+        Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, style = MaterialTheme.typography.bodyLarge)
             Text(value, style = MaterialTheme.typography.titleMedium)

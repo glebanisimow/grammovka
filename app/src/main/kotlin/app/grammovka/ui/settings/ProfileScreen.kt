@@ -1,6 +1,8 @@
 package app.grammovka.ui.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import app.grammovka.ui.common.DiscardDialog
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -59,6 +61,17 @@ fun ProfileScreen(container: AppContainer, onBack: () -> Unit) {
     var rate by remember { mutableStateOf("0,5") }
     var protein by remember { mutableStateOf("1,8") }
     var mode by remember { mutableStateOf(BudgetMode.WEEKLY) }
+    fun signature() = listOf(sex?.name, birthYear, height, activity, rate, protein, mode.name).joinToString("|")
+    var loadedSignature by remember { mutableStateOf<String?>(null) }
+    var confirmLeave by remember { mutableStateOf(false) }
+    val leave = { if (loadedSignature != null && signature() != loadedSignature) confirmLeave = true else onBack() }
+    BackHandler(onBack = leave)
+    if (confirmLeave) {
+        DiscardDialog(
+            "Выйти без сохранения?", "Изменения в профиле не сохранятся.", "Выйти",
+            onDiscard = { confirmLeave = false; onBack() }, onStay = { confirmLeave = false },
+        )
+    }
 
     LaunchedEffect(Unit) {
         val p = container.settingsStore.current().profile
@@ -69,6 +82,7 @@ fun ProfileScreen(container: AppContainer, onBack: () -> Unit) {
         rate = p.ratePercentPerWeek.input()
         protein = p.proteinPerKg.input()
         mode = p.budgetMode
+        loadedSignature = signature()
         loaded = true
     }
 
@@ -84,7 +98,7 @@ fun ProfileScreen(container: AppContainer, onBack: () -> Unit) {
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(GIcons.Back, contentDescription = "Назад") }
+            IconButton(onClick = leave) { Icon(GIcons.Back, contentDescription = "Назад") }
             Text("Профиль и цель", style = MaterialTheme.typography.headlineSmall)
         }
         if (!loaded) return@Column
@@ -111,7 +125,12 @@ fun ProfileScreen(container: AppContainer, onBack: () -> Unit) {
             Text("Активность вне тренировок", style = MaterialTheme.typography.titleSmall)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 activityLevels.forEach { (f, l) ->
-                    FilterChip(selected = activity.toDecimal() == f, onClick = { activity = f.toString().replace('.', ',') }, label = { Text(l) })
+                    FilterChip(selected = activity.toDecimal() == f, onClick = { activity = f.toString().replace('.', ',') }, label = { Text("$l · ${f.toString().replace('.', ',')}") })
+                }
+                // A value between the presets (the default 1,4 is one) gets its own selected chip, so one is always lit.
+                val own = activity.toDecimal()
+                if (own != null && activityLevels.none { it.first == own }) {
+                    FilterChip(selected = true, onClick = {}, label = { Text("Своё · ${activity.trim()}") })
                 }
             }
             NumberField(activity, { activity = it }, "Коэффициент активности", Modifier.fillMaxWidth(), isError = !activityOk)

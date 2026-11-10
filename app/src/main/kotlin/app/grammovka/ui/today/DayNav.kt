@@ -144,7 +144,7 @@ private fun WeekSummary(ui: TodayUi, start: LocalDate) {
     )
 }
 
-private fun plural(n: Int, one: String, few: String, many: String): String {
+internal fun plural(n: Int, one: String, few: String, many: String): String {
     val m10 = n % 10
     val m100 = n % 100
     return when {

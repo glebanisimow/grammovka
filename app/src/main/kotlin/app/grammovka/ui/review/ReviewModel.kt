@@ -49,6 +49,9 @@ sealed class ReviewItem(val fragment: Fragment) {
     /** A food that is not in the catalog yet: all fields editable, saved to the catalog if [save]. */
     class NewFood(fragment: Fragment, val form: FoodFormState, val note: String? = null) : ReviewItem(fragment) {
         var save by mutableStateOf(true)
+
+        /** The full form is shown at once only when something has to be filled in; otherwise a summary with «Изменить». */
+        var expanded by mutableStateOf(form.problem() != null)
     }
 
     /** Nothing matched; the user picks a candidate, enters it manually, asks Claude or drops it. */

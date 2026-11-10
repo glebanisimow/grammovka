@@ -85,6 +85,7 @@ import app.grammovka.di.AppContainer
 import app.grammovka.domain.engine.Warning
 import app.grammovka.domain.model.Fmt
 import app.grammovka.ui.common.NumberField
+import app.grammovka.ui.common.WeightDialog
 import app.grammovka.ui.common.input
 import app.grammovka.ui.common.toDecimal
 import app.grammovka.ui.icons.GIcons
@@ -549,24 +550,6 @@ private fun InputBar(
         // One camera button: the capture screen itself switches between barcode, label and photo.
         IconButton(onClick = onCapture, Modifier.size(48.dp)) { Icon(GIcons.Camera, "Сканер штрихкода, этикетка или фото еды") }
     }
-}
-
-@Composable
-private fun WeightDialog(current: Double?, onDismiss: () -> Unit, onSave: (Double?) -> Unit) {
-    var v by remember { mutableStateOf(current?.input().orEmpty()) }
-    val kg = v.toDecimal()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Вес за день") },
-        text = { NumberField(v, { v = it }, "Вес", suffix = "кг", imeAction = ImeAction.Done, isError = v.isNotEmpty() && (kg == null || kg !in 30.0..300.0)) },
-        confirmButton = { TextButton(onClick = { onSave(kg) }, enabled = kg != null && kg in 30.0..300.0) { Text("Сохранить") } },
-        dismissButton = {
-            Row {
-                if (current != null) TextButton(onClick = { onSave(null) }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
-                TextButton(onClick = onDismiss) { Text("Отмена") }
-            }
-        },
-    )
 }
 
 @Composable

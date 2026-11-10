@@ -82,6 +82,12 @@ class FoodFormState(d: FoodDraft) {
         )
     }
 
+    /** Everything the user can change, as one string: differs from the loaded one when there are unsaved edits. */
+    fun signature(): String = listOf(
+        name, brand, aliases, kcal, protein, fat, carbs, fiber, basis.name, sourceRef, barcode,
+        portions.joinToString(";") { it.name + "=" + it.grams },
+    ).joinToString("|")
+
     /** Message for the user when saving is not possible, or null. */
     fun problem(): String? {
         val d = toDraft() ?: return "Заполните калории, белки, жиры и углеводы числами."
