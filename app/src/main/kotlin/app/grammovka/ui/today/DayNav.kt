@@ -64,6 +64,13 @@ fun dayShort(d: LocalDate): String = shortFmt.format(d)
 /** Signed kcal: «−620», «+150». */
 fun signedKcal(v: Double): String = (if (v > 0.5) "+" else if (v < -0.5) "−" else "") + Fmt.kcal(abs(v))
 
+/** The balance in words, so the sign needs no legend: «дефицит 620», «профицит 150», «ровно в расход». */
+fun balanceWords(v: Double): String = when {
+    v < -0.5 -> "дефицит ${Fmt.kcal(-v)}"
+    v > 0.5 -> "профицит ${Fmt.kcal(v)}"
+    else -> "ровно в расход"
+}
+
 @Composable
 private fun balanceColor(v: Double): Color = if (v > 0.5) MaterialTheme.colorScheme.error else GTheme.extra.success
 
@@ -126,7 +133,7 @@ private fun WeekSummary(ui: TodayUi, start: LocalDate) {
     val sum = closed.sumOf { it.balance!! }
     val n = closed.size
     Text(
-        "Неделя: ${signedKcal(sum)} ккал за $n ${plural(n, "закрытый день", "закрытых дня", "закрытых дней")}",
+        "Неделя: ${balanceWords(sum)} ккал за $n ${plural(n, "закрытый день", "закрытых дня", "закрытых дней")}",
         Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
         style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted, textAlign = TextAlign.Center,
     )
@@ -218,7 +225,7 @@ fun MonthSheet(ui: TodayUi, onSelect: (LocalDate) -> Unit, onDismiss: () -> Unit
                 w = w.plusWeeks(1)
             }
             Text(
-                "✓ закрыт · ○ открыт · число — баланс закрытого дня (минус — дефицит)",
+                "✓ закрыт · ○ открыт · число — итог закрытого дня: съедено минус расход. С минусом — дефицит, с плюсом — профицит.",
                 Modifier.padding(top = 12.dp, start = 4.dp), style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
             )
         }
@@ -299,7 +306,7 @@ fun CloseDayDialog(ui: TodayUi, thenToday: Boolean, onClose: (incomplete: Boolea
                 Text("Записи этого дня больше нельзя будет менять.", style = MaterialTheme.typography.bodyMedium)
                 val summary = buildString {
                     append("Съедено ${Fmt.kcal(ui.eaten.kcal)} ккал")
-                    if (m != null) append(" · баланс ${signedKcal(m.balance(ui.eaten.kcal).balance)}")
+                    if (m != null) append(" · ${balanceWords(m.balance(ui.eaten.kcal).balance)}")
                 }
                 Text(summary, style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted)
                 if (thenToday) Text("Затем начнётся ${dayShort(ui.today)}.", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)

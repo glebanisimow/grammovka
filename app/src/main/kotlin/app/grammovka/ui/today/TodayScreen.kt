@@ -314,15 +314,28 @@ private fun Budget(ui: TodayUi, onOpenProfile: () -> Unit, onWeight: () -> Unit)
                 val left = b.left
                 if (ui.state == app.grammovka.domain.log.DayState.CLOSED) {
                     // A closed day shows its result: the balance against the day's expenditure.
-                    Text("БАЛАНС ДНЯ", style = MaterialTheme.typography.labelMedium, color = GTheme.extra.textMuted)
+                    // In words, not as a signed «баланс»: a minus sign alone does not say which way is good.
                     Text(
-                        signedKcal(b.balance), style = NumberHero,
+                        when {
+                            b.balance < -0.5 -> "ДЕФИЦИТ ДНЯ"
+                            b.balance > 0.5 -> "ПРОФИЦИТ ДНЯ"
+                            else -> "ИТОГ ДНЯ"
+                        },
+                        style = MaterialTheme.typography.labelMedium, color = GTheme.extra.textMuted,
+                    )
+                    Text(
+                        Fmt.kcal(abs(b.balance)), style = NumberHero,
                         color = if (b.balance > 0.5) MaterialTheme.colorScheme.error else GTheme.extra.success,
                     )
                     Text(
-                        "съедено ${Fmt.kcal(ui.eaten.kcal)} · расход ≈ ${Fmt.kcal(b.expenditure)} · бюджет был ${Fmt.kcal(m.allowance + m.activity)} " +
-                            if (left >= 0) "(осталось ${Fmt.kcal(left)})" else "(сверх ${Fmt.kcal(-left)})",
+                        "съедено ${Fmt.kcal(ui.eaten.kcal)} − расход ≈ ${Fmt.kcal(b.expenditure)}" +
+                            if (m.activity > 0) " (норма ${Fmt.kcal(m.snapshot.tdee)} + тренировки ${Fmt.kcal(m.activity)})" else "",
                         style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
+                    )
+                    Text(
+                        "Бюджет был ${Fmt.kcal(m.allowance + m.activity)}: " +
+                            if (left >= 0) "осталось ${Fmt.kcal(left)}" else "сверх на ${Fmt.kcal(-left)}",
+                        style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
                     )
                 } else {
                     Text(if (left >= 0) "ОСТАЛОСЬ" else "СВЕРХ БЮДЖЕТА", style = MaterialTheme.typography.labelMedium, color = GTheme.extra.textMuted)
@@ -332,13 +345,12 @@ private fun Budget(ui: TodayUi, onOpenProfile: () -> Unit, onWeight: () -> Unit)
                         else "из ${Fmt.kcal(m.allowance)} ккал · съедено ${Fmt.kcal(ui.eaten.kcal)}",
                         style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
                     )
-                    if (m.activity > 0) {
-                        Text(
-                            "Расход дня ≈ ${Fmt.kcal(b.expenditure)} (норма ${Fmt.kcal(m.snapshot.tdee)} + тренировки ${Fmt.kcal(m.activity)}) · " +
-                                "баланс ${if (b.balance > 0) "+" else "−"}${Fmt.kcal(abs(b.balance))}",
-                            style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
-                        )
-                    }
+                    Text(
+                        "Расход дня ≈ ${Fmt.kcal(b.expenditure)}" +
+                            (if (m.activity > 0) " (норма ${Fmt.kcal(m.snapshot.tdee)} + тренировки ${Fmt.kcal(m.activity)})" else "") +
+                            " · сейчас ${balanceWords(b.balance)}",
+                        style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+                    )
                 }
                 val p = m.snapshot.proteinTarget
                 Spacer(Modifier.height(8.dp))
