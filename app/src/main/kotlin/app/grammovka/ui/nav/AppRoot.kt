@@ -43,6 +43,7 @@ import app.grammovka.ui.settings.ProfileScreen
 import app.grammovka.ui.settings.SettingsScreen
 import app.grammovka.ui.theme.GTheme
 import app.grammovka.ui.today.TodayScreen
+import app.grammovka.ui.weekly.WeeklyReviewScreen
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 
@@ -55,6 +56,7 @@ import java.time.LocalDate
 @Serializable object ReviewRoute
 @Serializable data class FoodEditRoute(val id: Long = -1, val barcode: String = "")
 @Serializable data class RecipeEditRoute(val id: Long = -1)
+@Serializable data class WeeklyReviewRoute(val week: String = "", val auto: Boolean = false)
 @Serializable data class CaptureRoute(val date: String, val mode: String, val meal: String = "")
 
 private data class Tab(val route: Any, val label: String, val icon: ImageVector)
@@ -96,6 +98,14 @@ fun AppRoot(container: AppContainer) {
                 // Today consumes it (focus + keyboard); make sure Today is on screen.
                 nav.navigate(TodayRoute) { popUpTo(nav.graph.findStartDestination().id); launchSingleTop = true }
             }
+        }
+    }
+    val openWeekly by container.openWeekly.collectAsStateWithLifecycle()
+    LaunchedEffect(openWeekly) {
+        openWeekly?.let { week ->
+            container.openWeekly.value = null
+            // From the Sunday notification: the review is written as soon as the screen opens.
+            nav.navigate(WeeklyReviewRoute(week, auto = true)) { launchSingleTop = true }
         }
     }
     val openPendingSignal by container.openPending.collectAsStateWithLifecycle()
@@ -160,7 +170,14 @@ fun AppRoot(container: AppContainer) {
                     onCreate = { recipe -> nav.navigate(if (recipe) RecipeEditRoute() else FoodEditRoute()) },
                 )
             }
-            composable<ProgressRoute> { ProgressScreen(container) }
+            composable<ProgressRoute> { ProgressScreen(container, onOpenWeekly = { nav.navigate(WeeklyReviewRoute()) }) }
+            composable<WeeklyReviewRoute> { entry ->
+                val r = entry.toRoute<WeeklyReviewRoute>()
+                WeeklyReviewScreen(
+                    container, r.week.takeIf { it.isNotEmpty() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() }, r.auto,
+                    onBack = { nav.popBackStack() }, onOpenKeys = { nav.navigate(KeysRoute) },
+                )
+            }
             composable<SettingsRoute> {
                 SettingsScreen(container, onOpenKeys = { nav.navigate(KeysRoute) }, onOpenProfile = { nav.navigate(ProfileRoute) })
             }

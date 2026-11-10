@@ -2,7 +2,12 @@ package app.grammovka.data.ai
 
 import app.grammovka.data.keys.AnthropicApi
 import app.grammovka.data.net.await
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -23,6 +28,12 @@ import kotlin.math.pow
 enum class ClaudeErrorKind { NO_KEY, OFFLINE, INVALID_KEY, NO_PERMISSION, BILLING, RATE_LIMIT, OVERLOADED, SERVER, BAD_REQUEST, TIMEOUT, BUDGET }
 
 class ClaudeException(val kind: ClaudeErrorKind, val status: Int? = null, val apiMessage: String? = null) : IOException("${kind.name} $status")
+
+/** A piece of a streamed answer: text as it is written, then the totals. */
+sealed interface StreamEvent {
+    data class Text(val text: String) : StreamEvent
+    data class Done(val usage: Usage, val stopReason: String?) : StreamEvent
+}
 
 /** Raw Messages API response pieces we use. */
 data class ClaudeResponse(val json: JsonObject) {
@@ -91,7 +102,100 @@ class ClaudeClient(http: OkHttpClient) {
         error("unreachable")
     }
 
+    /**
+     * The same request with `"stream": true`: text arrives as it is written (the weekly review screen).
+     * Server-sent events per https://platform.claude.com/docs/en/build-with-claude/streaming — `message_start`
+     * (input usage), `content_block_delta` with a `text_delta`, `message_delta` (stop reason, output usage),
+     * `error`. Thinking deltas and pings are skipped. Retries apply only before the first byte of the stream;
+     * cancelling the collector interrupts the read and closes the connection («Остановить»).
+     */
+    fun stream(apiKey: String, body: JsonObject): Flow<StreamEvent> = channelFlow {
+        val full = JsonObject(body + ("stream" to JsonPrimitive(true)))
+        var attempt = 0
+        val resp = run {
+            while (true) {
+                attempt++
+                val req = Request.Builder()
+                    .url("${AnthropicApi.BASE_URL}/v1/messages")
+                    .header("x-api-key", apiKey)
+                    .header("anthropic-version", AnthropicApi.VERSION)
+                    .header("content-type", "application/json")
+                    .post(full.toString().toRequestBody(jsonType))
+                    .build()
+                val r = try {
+                    http.await(req)
+                } catch (e: IOException) {
+                    throw ClaudeException(ClaudeErrorKind.OFFLINE)
+                }
+                if (r.code in 200..299) return@run r
+                val code = r.code
+                val retryAfter = r.header("retry-after")?.toDoubleOrNull()
+                val text = r.use { it.body.string() }
+                if ((code == 429 || code == 529 || code in 500..599) && attempt < MAX_ATTEMPTS) {
+                    delay(min(retryAfter?.let { (it * 1000).toLong() } ?: (1000.0 * 2.0.pow(attempt - 1)).toLong(), 20_000))
+                    continue
+                }
+                throw ClaudeException(kindOf(code), code, apiMessage(text))
+            }
+            @Suppress("UNREACHABLE_CODE")
+            error("unreachable")
+        }
+        runInterruptible(Dispatchers.IO) {
+            resp.use { r ->
+                val source = r.body.source()
+                var usage = Usage()
+                var stop: String? = null
+                try {
+                    while (true) {
+                        val line = source.readUtf8Line() ?: break
+                        if (!line.startsWith("data:")) continue
+                        val o = runCatching { lenient.parseToJsonElement(line.removePrefix("data:").trim()).jsonObject }.getOrNull() ?: continue
+                        when (o.str("type")) {
+                            "message_start" -> usage = usageOf((o["message"] as? JsonObject)?.get("usage") as? JsonObject, usage)
+                            "content_block_delta" -> {
+                                val d = o["delta"] as? JsonObject
+                                if (d?.str("type") == "text_delta") d.str("text")?.let { trySendBlocking(StreamEvent.Text(it)) }
+                            }
+                            "message_delta" -> {
+                                (o["delta"] as? JsonObject)?.str("stop_reason")?.let { stop = it }
+                                usage = usageOf(o["usage"] as? JsonObject, usage)
+                            }
+                            "error" -> {
+                                val err = o["error"] as? JsonObject
+                                val kind = if (err?.str("type") == "overloaded_error") ClaudeErrorKind.OVERLOADED else ClaudeErrorKind.SERVER
+                                throw ClaudeException(kind, apiMessage = err?.str("message"))
+                            }
+                        }
+                    }
+                } catch (e: ClaudeException) {
+                    throw e
+                } catch (e: java.net.SocketTimeoutException) {
+                    throw ClaudeException(ClaudeErrorKind.TIMEOUT)
+                } catch (e: java.io.InterruptedIOException) {
+                    throw e // the collector was cancelled
+                } catch (e: IOException) {
+                    throw ClaudeException(ClaudeErrorKind.OFFLINE)
+                }
+                trySendBlocking(StreamEvent.Done(usage, stop))
+            }
+        }
+    }
+
     companion object {
+        private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+
+        /** Usage fields present in [u] replace those in [base] (the stream reports input first, output last). */
+        private fun usageOf(u: JsonObject?, base: Usage): Usage {
+            fun i(o: JsonObject?, k: String) = (o?.get(k) as? JsonPrimitive)?.intOrNull
+            return Usage(
+                input = i(u, "input_tokens") ?: base.input,
+                output = i(u, "output_tokens") ?: base.output,
+                cacheRead = i(u, "cache_read_input_tokens") ?: base.cacheRead,
+                cacheWrite = i(u, "cache_creation_input_tokens") ?: base.cacheWrite,
+                webSearches = base.webSearches,
+            )
+        }
+
         const val MAX_ATTEMPTS = 3
         private val lenient = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 

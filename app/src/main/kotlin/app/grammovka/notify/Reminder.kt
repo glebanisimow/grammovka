@@ -10,6 +10,9 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.grammovka.GrammovkaApp
 import app.grammovka.data.settings.ReminderSettings
+import app.grammovka.data.settings.WeeklyReviewSettings
+import app.grammovka.domain.log.DayLedger
+import java.time.DayOfWeek
 import app.grammovka.domain.time.Daily
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +53,40 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
             Notifications.yesterdayQuestion(applicationContext, yesterday, day.kcal)
         }
         Reminder.schedule(applicationContext, settings)
+        return Result.success()
+    }
+}
+
+/**
+ * Weekly review (spec, phase 3): Sunday evening → notification → the review screen. Same self-rescheduling
+ * one-time work as the morning question.
+ */
+object WeeklyReview {
+    private const val NAME = "weekly-review"
+
+    fun schedule(context: Context, w: WeeklyReviewSettings) {
+        val wm = WorkManager.getInstance(context)
+        if (!w.enabled) {
+            wm.cancelUniqueWork(NAME)
+            return
+        }
+        val delay = Daily.delayUntilNextWeekday(LocalDateTime.now(), DayOfWeek.SUNDAY, w.minuteOfDay)
+        val request = OneTimeWorkRequestBuilder<WeeklyReviewWorker>().setInitialDelay(delay.toMillis(), TimeUnit.MILLISECONDS).build()
+        wm.enqueueUniqueWork(NAME, ExistingWorkPolicy.REPLACE, request)
+    }
+}
+
+class WeeklyReviewWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val c = (applicationContext as GrammovkaApp).container
+        val settings = c.settingsStore.current().weekly
+        if (!settings.enabled) return Result.success()
+        val today = LocalDate.now()
+        val monday = DayLedger.weekStart(today)
+        // Nothing to review in a week without entries.
+        val days = c.logRepository.intake(monday, today).values.count { it.hasEntries }
+        if (days > 0) Notifications.weeklyReady(applicationContext, monday, days)
+        WeeklyReview.schedule(applicationContext, settings)
         return Result.success()
     }
 }

@@ -1,6 +1,12 @@
 package app.grammovka.ui.progress
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import app.grammovka.ui.icons.GIcons
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,7 +46,7 @@ private val weekFmt = DateTimeFormatter.ofPattern("d MMM", Locale.forLanguageTag
 
 /** Charts from ModelSnapshot and the log (spec, phase 2), the weekly table and the model's numbers. */
 @Composable
-fun ProgressScreen(container: AppContainer) {
+fun ProgressScreen(container: AppContainer, onOpenWeekly: () -> Unit) {
     val state by container.modelHub.state.collectAsStateWithLifecycle()
     val weights by container.weightRepository.observeAll().collectAsStateWithLifecycle(emptyList())
     val today = LocalDate.now()
@@ -61,6 +67,22 @@ fun ProgressScreen(container: AppContainer) {
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { ScreenTitle("Прогресс") }
+        item {
+            Row(
+                Modifier.fillMaxWidth().clickable(onClick = onOpenWeekly).heightIn(min = 64.dp).padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Разбор недели", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Цифры недели и разбор от Claude: что сработало и что поменять",
+                        style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+                    )
+                }
+                Icon(GIcons.Next, null, Modifier.size(20.dp), tint = GTheme.extra.textMuted)
+            }
+            HorizontalDivider(Modifier.padding(bottom = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        }
         item {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 ranges.forEachIndexed { i, (d, l) ->

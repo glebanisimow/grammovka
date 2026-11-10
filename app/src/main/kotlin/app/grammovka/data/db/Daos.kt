@@ -225,6 +225,8 @@ interface ActivityDao {
 
     @Query("SELECT * FROM activity_entry WHERE date = :date ORDER BY time, id") fun observeDay(date: LocalDate): Flow<List<ActivityEntryEntity>>
     @Query("SELECT * FROM activity_entry ORDER BY date, time, id") suspend fun all(): List<ActivityEntryEntity>
+    @Query("SELECT * FROM activity_entry WHERE date BETWEEN :from AND :to ORDER BY date, time, id")
+    suspend fun between(from: LocalDate, to: LocalDate): List<ActivityEntryEntity>
 
     @Query("SELECT date, SUM(kcal) AS kcal FROM activity_entry WHERE date BETWEEN :from AND :to GROUP BY date ORDER BY date")
     suspend fun totals(from: LocalDate, to: LocalDate): List<ActivityTotalRow>

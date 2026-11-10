@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.grammovka.data.settings.AppSettings
 import app.grammovka.data.settings.ReminderSettings
+import app.grammovka.data.settings.WeeklyReviewSettings
+import app.grammovka.notify.WeeklyReview
 import app.grammovka.di.AppContainer
 import app.grammovka.notify.Notifications
 import app.grammovka.notify.Reminder
@@ -73,6 +75,49 @@ fun ReminderSection(container: AppContainer) {
             }) { Text("Время: $time", color = GTheme.extra.accentText) }
             if (!Notifications.allowed(context)) {
                 Text("Уведомления запрещены в настройках Android.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+/** Weekly review: the Sunday-evening notification, on/off and time. The review itself opens from «Прогресс» too. */
+@Composable
+fun WeeklySection(container: AppContainer) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settings by container.settingsStore.settings.collectAsStateWithLifecycle(AppSettings())
+    val w = settings.weekly
+
+    fun save(next: WeeklyReviewSettings) {
+        scope.launch {
+            container.settingsStore.setWeekly(next)
+            WeeklyReview.schedule(context, next)
+        }
+    }
+    // Asked for the notification, so the switch stays on either way; a refusal is shown below it.
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { save(w.copy(enabled = true)) }
+    val ask = { if (Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
+
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(GIcons.Progress, null, tint = GTheme.extra.textMuted)
+            Text("Разбор недели", Modifier.weight(1f).padding(start = 16.dp), style = MaterialTheme.typography.titleMedium)
+            Switch(checked = w.enabled, onCheckedChange = { on ->
+                if (on && !Notifications.allowed(context)) ask() else save(w.copy(enabled = on))
+            })
+        }
+        Text(
+            "В воскресенье вечером приходит уведомление; по нажатию Claude разбирает питание за неделю. Без уведомления разбор открывается на «Прогрессе».",
+            style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+        )
+        if (w.enabled) {
+            val time = "%d:%02d".format(w.minuteOfDay / 60, w.minuteOfDay % 60)
+            TextButton(onClick = {
+                TimePickerDialog(context, { _, h, m -> save(w.copy(minuteOfDay = h * 60 + m)) }, w.minuteOfDay / 60, w.minuteOfDay % 60, true).show()
+            }) { Text("Воскресенье, $time", color = GTheme.extra.accentText) }
+            if (!Notifications.allowed(context)) {
+                Text("Уведомления приложению не разрешены, поэтому напоминание не придёт.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = ask) { Text("Разрешить уведомления", color = GTheme.extra.accentText) }
             }
         }
     }

@@ -64,6 +64,8 @@ fun SettingsScreen(container: AppContainer, onOpenKeys: () -> Unit, onOpenProfil
         HorizontalDivider(Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
         ReminderSection(container)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        WeeklySection(container)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         HealthSection(container)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         DataSection(container)

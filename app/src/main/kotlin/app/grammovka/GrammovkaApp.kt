@@ -19,6 +19,7 @@ class GrammovkaApp : Application() {
         app.grammovka.notify.Notifications.createChannels(this)
         container.appScope.launch {
             app.grammovka.notify.Reminder.schedule(this@GrammovkaApp, container.settingsStore.current().reminder)
+            app.grammovka.notify.WeeklyReview.schedule(this@GrammovkaApp, container.settingsStore.current().weekly)
         }
         // Keep the home-screen widget in step with the log and the model while the process is alive.
         container.appScope.launch {

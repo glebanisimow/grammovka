@@ -45,10 +45,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun handleOpenWeekly(intent: Intent?) {
+        val week = intent?.getStringExtra(app.grammovka.notify.Notifications.EXTRA_OPEN_WEEKLY)
+            ?: intent?.getStringExtra("debug_weekly")?.takeIf { BuildConfig.DEBUG }
+            ?: return
+        (application as GrammovkaApp).container.openWeekly.value = week
+        intent?.removeExtra(app.grammovka.notify.Notifications.EXTRA_OPEN_WEEKLY)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleDebugInput(intent)
         handleOpenPending(intent)
+        handleOpenWeekly(intent)
         handleWidget(intent)
     }
 
@@ -56,6 +65,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleDebugInput(intent)
         handleOpenPending(intent)
+        handleOpenWeekly(intent)
         handleWidget(intent)
         enableEdgeToEdge()
         val container = (application as GrammovkaApp).container

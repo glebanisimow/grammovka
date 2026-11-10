@@ -60,9 +60,16 @@ data class ReminderSettings(
     val offered: Boolean = false,
 )
 
+/** Weekly review: a notification on Sunday evening that opens the review screen. On by default (user request 2026-11-10). */
+data class WeeklyReviewSettings(
+    val enabled: Boolean = true,
+    val minuteOfDay: Int = 20 * 60,
+)
+
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val reminder: ReminderSettings = ReminderSettings(),
+    val weekly: WeeklyReviewSettings = WeeklyReviewSettings(),
     /** Health Connect connected by the user: weights are synced when the app opens. */
     val healthConnect: Boolean = false,
     val aiMonthlyLimitUsd: Double = 5.0,
@@ -85,6 +92,8 @@ class SettingsStore(private val context: Context) {
         val reminderOn = booleanPreferencesKey("reminder_enabled")
         val reminderMinute = intPreferencesKey("reminder_minute")
         val reminderOffered = booleanPreferencesKey("reminder_offered")
+        val weeklyOn = booleanPreferencesKey("weekly_review_enabled")
+        val weeklyMinute = intPreferencesKey("weekly_review_minute")
         fun model(p: AiPurpose) = stringPreferencesKey("ai_model_${p.name}")
     }
 
@@ -99,6 +108,10 @@ class SettingsStore(private val context: Context) {
                 enabled = p[K.reminderOn] ?: false,
                 minuteOfDay = p[K.reminderMinute] ?: d.reminder.minuteOfDay,
                 offered = p[K.reminderOffered] ?: false,
+            ),
+            weekly = WeeklyReviewSettings(
+                enabled = p[K.weeklyOn] ?: d.weekly.enabled,
+                minuteOfDay = p[K.weeklyMinute] ?: d.weekly.minuteOfDay,
             ),
             profile = ProfileSettings(
                 sex = p[K.sex]?.let { runCatching { Sex.valueOf(it) }.getOrNull() },
@@ -128,6 +141,13 @@ class SettingsStore(private val context: Context) {
             it[K.reminderOn] = r.enabled
             it[K.reminderMinute] = r.minuteOfDay
             it[K.reminderOffered] = r.offered
+        }
+    }
+
+    suspend fun setWeekly(w: WeeklyReviewSettings) {
+        context.settingsDataStore.edit {
+            it[K.weeklyOn] = w.enabled
+            it[K.weeklyMinute] = w.minuteOfDay
         }
     }
 

@@ -60,6 +60,9 @@ class AppContainer(context: Context) {
     /** Set by a «сеть появилась» notification tap; AppRoot opens the review of deferred items. */
     val openPending = kotlinx.coroutines.flow.MutableStateFlow(false)
 
+    /** Set by the weekly-review notification tap: the Monday (ISO date) of the week to open; AppRoot consumes it. */
+    val openWeekly = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
     /** Widget buttons: GrammovkaWidget.ACTION_ADD / ACTION_SCAN, consumed by AppRoot and Today. */
     val widgetAction = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val healthRepository by lazy { app.grammovka.data.health.HealthRepository(appContext, database) }
@@ -97,4 +100,5 @@ class AppContainer(context: Context) {
     val aiCostTracker by lazy { AiCostTracker(database.aiCallLogDao()) }
     val aiService by lazy { AiService(ClaudeClient(httpClient), secretStore, settingsStore, aiCostTracker, usdaClient, offClient) }
     val logEvents = LogEvents()
+    val weeklyReviewRepository by lazy { app.grammovka.data.repo.WeeklyReviewRepository(java.io.File(appContext.filesDir, "weekly"), database) }
 }

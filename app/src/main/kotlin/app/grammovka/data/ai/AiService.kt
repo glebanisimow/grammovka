@@ -18,6 +18,8 @@ import app.grammovka.domain.model.Nutrition
 import app.grammovka.domain.parse.Fragment
 import app.grammovka.domain.parse.PortionNames
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -371,7 +373,7 @@ class AiService(
         )
         val body = buildJsonObject {
             put("max_tokens", 2000)
-            put("system", systemBlocks(Prompts.PROMPT_PHOTO_V1))
+            put("system", systemBlocks(Prompts.PROMPT_PHOTO_V2))
             putJsonArray("messages") {
                 addJsonObject {
                     put("role", "user")
@@ -429,6 +431,48 @@ class AiService(
         }
         val resp = call(AiPurpose.ACTIVITY, Prompts.ACTIVITY_VERSION, body, OTHER_TIMEOUT_MS)
         return ActivityMapping.proposals(json.parseToJsonElement(resp.text).jsonObject)
+    }
+
+    // ------------------------------------------------------------------ ANALYSIS
+
+    /**
+     * Weekly review: the app's aggregates in ([digest], JSON prepared by code — invariant 3), prose out, streamed
+     * (https://platform.claude.com/docs/en/build-with-claude/streaming). Emits text pieces as they arrive.
+     * Thinking stays adaptive (Sonnet 5.5 rejects `disabled`); `output_config.effort` keeps it short:
+     * https://platform.claude.com/docs/en/build-with-claude/effort. Nothing here changes data.
+     */
+    fun weeklyReview(digest: String): Flow<String> = flow {
+        val s = settings.current()
+        val key = secrets.get(Secret.ANTHROPIC_KEY) ?: throw ClaudeException(ClaudeErrorKind.NO_KEY)
+        try {
+            costs.check(s.aiMonthlyLimitUsd)
+        } catch (e: AiBudgetExceeded) {
+            throw ClaudeException(ClaudeErrorKind.BUDGET)
+        }
+        val model = s.models.getValue(AiPurpose.ANALYSIS)
+        val body = buildJsonObject {
+            put("model", model)
+            put("max_tokens", 8000)
+            put("system", systemBlocks(Prompts.PROMPT_WEEKLY_V1))
+            putJsonArray("messages") { addJsonObject { put("role", "user"); put("content", digest) } }
+            putJsonObject("output_config") { put("effort", "medium") }
+        }
+        var usage = Usage()
+        try {
+            client.stream(key, body).collect { e ->
+                when (e) {
+                    is StreamEvent.Text -> emit(e.text)
+                    is StreamEvent.Done -> {
+                        usage = e.usage
+                        if (e.stopReason == "refusal") throw ClaudeException(ClaudeErrorKind.BAD_REQUEST, apiMessage = "Claude отказался разбирать эти данные")
+                    }
+                }
+            }
+            costs.record(AiPurpose.ANALYSIS, model, Prompts.WEEKLY_VERSION, usage, ok = true)
+        } catch (e: ClaudeException) {
+            costs.record(AiPurpose.ANALYSIS, model, Prompts.WEEKLY_VERSION, usage, ok = false, errorCode = e.kind.name)
+            throw e
+        }
     }
 
     // ------------------------------------------------------------------ plumbing

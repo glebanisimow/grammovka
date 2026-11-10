@@ -27,7 +27,13 @@ object Notifications {
     private const val ID_PENDING = 1001
     const val ID_REMINDER = 1002
 
+    const val CHANNEL_WEEKLY = "weekly"
+    private const val ID_WEEKLY = 1003
+
     const val EXTRA_OPEN_PENDING = "open_pending"
+
+    /** Monday (ISO date) of the week whose review the notification opens. */
+    const val EXTRA_OPEN_WEEKLY = "open_weekly"
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -38,6 +44,10 @@ object Notifications {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_REMINDER, "Утренний вопрос", NotificationManager.IMPORTANCE_DEFAULT)
                 .apply { description = "«Вчера всё записано?»" },
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_WEEKLY, "Разбор недели", NotificationManager.IMPORTANCE_DEFAULT)
+                .apply { description = "В воскресенье вечером: разбор питания за неделю" },
         )
     }
 
@@ -87,6 +97,24 @@ object Notifications {
             .addAction(0, "Не полностью", action(ReminderActionReceiver.NO, 2002))
             .build()
         notify(context, ID_REMINDER, n)
+    }
+
+    /** Sunday evening: the tap opens the review screen, where Claude writes the review (never in the background). */
+    fun weeklyReady(context: Context, monday: LocalDate, days: Int) {
+        if (!allowed(context)) return
+        val open = PendingIntent.getActivity(
+            context, ID_WEEKLY,
+            Intent(context, MainActivity::class.java).putExtra(EXTRA_OPEN_WEEKLY, monday.toString()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val n = NotificationCompat.Builder(context, CHANNEL_WEEKLY)
+            .setSmallIcon(R.drawable.ic_stat_grammovka)
+            .setContentTitle("Разбор недели")
+            .setContentText("Дней с записями: $days. Нажмите, и Claude разберёт питание за неделю.")
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        notify(context, ID_WEEKLY, n)
     }
 
     fun cancel(context: Context, id: Int) = NotificationManagerCompat.from(context).cancel(id)
