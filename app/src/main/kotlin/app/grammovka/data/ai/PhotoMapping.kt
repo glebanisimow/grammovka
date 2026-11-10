@@ -4,6 +4,7 @@ import app.grammovka.domain.model.FoodBasis
 import app.grammovka.domain.model.FoodDraft
 import app.grammovka.domain.model.FoodSource
 import app.grammovka.domain.model.Nutrients
+import app.grammovka.domain.text.Normalize
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -19,7 +20,50 @@ import kotlinx.serialization.json.jsonObject
  */
 object PhotoMapping {
 
-    private fun items(o: JsonObject) = o["items"]?.jsonArray?.map { it.jsonObject }.orEmpty()
+    /**
+     * Recognised items without repeats. The model tends to list one product once per photo (the bun, then the
+     * same bun on the package shot), which doubled the lines on the confirm screen. Items are the same food when
+     * their names or their search queries are equal, or when one name and one query are contained in the other
+     * («Булочка ржаная» / «Булочка ржаная с семечками»). The first position is kept, with the richer data.
+     */
+    private fun items(o: JsonObject): List<JsonObject> {
+        val out = mutableListOf<JsonObject>()
+        for (item in o["items"]?.jsonArray?.map { it.jsonObject }.orEmpty()) {
+            val i = out.indexOfFirst { same(it, item) }
+            if (i < 0) out += item else out[i] = merge(out[i], item)
+        }
+        return out
+    }
+
+    private fun words(s: String?): Set<String> = Normalize.tokens(s.orEmpty()).toSet()
+
+    private fun same(a: JsonObject, b: JsonObject): Boolean {
+        val an = words(a.s("nameRu")); val bn = words(b.s("nameRu"))
+        val aq = words(a.s("queryEn")); val bq = words(b.s("queryEn"))
+        if (an.isEmpty() || bn.isEmpty()) return false
+        fun nested(x: Set<String>, y: Set<String>) = x.isNotEmpty() && y.isNotEmpty() && (x.containsAll(y) || y.containsAll(x))
+        return an == bn || (aq.isNotEmpty() && aq == bq) || (nested(an, bn) && nested(aq, bq))
+    }
+
+    /** One item out of two shots of the same food: the printed table, the label weight and the fuller name win. */
+    private fun merge(a: JsonObject, b: JsonObject): JsonObject {
+        val base = when {
+            a.table() == null && b.table() != null -> b
+            a.table() != null && b.table() == null -> a
+            words(b.s("nameRu")).size > words(a.s("nameRu")).size -> b
+            else -> a
+        }
+        val other = if (base === a) b else a
+        val extra = buildMap<String, kotlinx.serialization.json.JsonElement> {
+            val weightFromLabel = other.s("gramsBasis") == "label" && base.s("gramsBasis") != "label"
+            if (other.d("grams") != null && (base.d("grams") == null || weightFromLabel)) {
+                put("grams", other.getValue("grams")); other["gramsBasis"]?.let { put("gramsBasis", it) }
+            }
+            for (k in listOf("brand", "packageG")) if (base.s(k) == null && base.d(k) == null) other[k]?.takeIf { it !is JsonNull }?.let { put(k, it) }
+            if (other.bool("packaged")) put("packaged", JsonPrimitive(true))
+        }
+        return JsonObject(base + extra)
+    }
 
     private fun request(it: JsonObject) = "${it.s("nameRu")} — ${it.s("queryEn")}. ${it.s("details")}"
 

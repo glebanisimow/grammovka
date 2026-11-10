@@ -68,6 +68,37 @@ class PhotoMappingTest {
         assertEquals(FoodSource.MANUAL, r.foods.single().draft.source)
     }
 
+    @Test fun sameFoodFromTwoPhotosIsOneLine() {
+        val o = fixture("photo_bun_twice.json")
+        val req = PhotoMapping.requests(o)
+        assertEquals(2, req.size) // the bun once, the butter once
+        assertTrue(req[0].contains("with sunflower seeds"))
+        val r = PhotoMapping.combine(
+            o,
+            listOf(usda(req[0], "Rye roll", Nutrients(259.0, 8.5, 3.3, 48.3, 5.8)), usda(req[1], "Butter", Nutrients(717.0, 0.9, 81.0, 0.1))),
+            null,
+        )
+        assertEquals(listOf("Булочка ржаная с семечками", "Масло сливочное"), r.foods.map { it.draft.name })
+        // The fuller description wins and brings its label weight; the butter keeps the grams of the shot that had them.
+        assertEquals(80.0, r.foods[0].grams!!, 0.0)
+        assertEquals("Putka", r.foods[0].draft.brand)
+        assertTrue(r.foods[0].note.contains("вес с упаковки"))
+        assertEquals(10.0, r.foods[1].grams!!, 0.0)
+        assertEquals(717.0, r.foods[1].draft.per100.kcal, 0.0)
+    }
+
+    @Test fun differentFoodsWithSharedWordsStayApart() {
+        val o = Json.parseToJsonElement(
+            """{"items":[
+                {"nameRu":"Рис отварной","queryEn":"rice, white, cooked","details":"","packaged":false,"brand":null,"packageG":null,"grams":150,"gramsBasis":"visual","tableKcal":null,"tableProtein":null,"tableFat":null,"tableCarbs":null,"tableFiber":null},
+                {"nameRu":"Курица отварная","queryEn":"chicken breast, cooked","details":"","packaged":false,"brand":null,"packageG":null,"grams":120,"gramsBasis":"visual","tableKcal":null,"tableProtein":null,"tableFat":null,"tableCarbs":null,"tableFiber":null},
+                {"nameRu":"Сыр","queryEn":"cheese, gouda","details":"","packaged":false,"brand":null,"packageG":null,"grams":30,"gramsBasis":"visual","tableKcal":null,"tableProtein":null,"tableFat":null,"tableCarbs":null,"tableFiber":null},
+                {"nameRu":"Сыр плавленый","queryEn":"processed cheese spread","details":"","packaged":false,"brand":null,"packageG":null,"grams":20,"gramsBasis":"visual","tableKcal":null,"tableProtein":null,"tableFat":null,"tableCarbs":null,"tableFiber":null}
+            ],"notes":null}""",
+        ).jsonObject
+        assertEquals(4, PhotoMapping.requests(o).size)
+    }
+
     @Test fun noFood() {
         val r = PhotoMapping.combine(Json.parseToJsonElement("""{"items":[],"notes":null}""").jsonObject, emptyList(), null)
         assertTrue(r.foods.isEmpty())
