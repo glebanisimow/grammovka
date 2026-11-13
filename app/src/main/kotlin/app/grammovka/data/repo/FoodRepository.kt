@@ -61,6 +61,17 @@ class FoodRepository(private val dao: FoodDao, private val clock: () -> Long = S
 
     suspend fun setArchived(id: Long, archived: Boolean) = dao.setArchived(id, archived, clock())
 
+    /** Why the food cannot be deleted, or null. Recipes keep their ingredients by reference. */
+    suspend fun deleteBlocker(id: Long): String? {
+        if (dao.isRecipeFood(id) > 0) return "Это рецепт: удалите его на вкладке «Рецепты»."
+        val recipes = dao.recipesUsing(id)
+        if (recipes.isNotEmpty()) return "Продукт входит в рецепты: ${recipes.joinToString(", ") { "«$it»" }}. Уберите его оттуда или отправьте в архив."
+        return null
+    }
+
+    /** Removes the food from the catalog. Diary entries stay (they hold their own numbers); templates lose the line. */
+    suspend fun delete(id: Long) = dao.delete(id)
+
     /** Adds [words] as a synonym unless the name or an alias already normalizes to the same text. */
     suspend fun learnAlias(id: Long, words: String) {
         val f = dao.byId(id) ?: return

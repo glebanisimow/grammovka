@@ -11,12 +11,14 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +45,8 @@ fun FoodEditScreen(container: AppContainer, id: Long?, barcode: String?, onBack:
     var error by remember { mutableStateOf<String?>(null) }
     var loadedSignature by remember { mutableStateOf<String?>(null) }
     var confirmLeave by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var deleteBlocker by remember { mutableStateOf<String?>(null) }
     val leave = { if (state != null && state?.signature() != loadedSignature) confirmLeave = true else onBack() }
     BackHandler(onBack = leave)
     if (confirmLeave) {
@@ -66,7 +70,12 @@ fun FoodEditScreen(container: AppContainer, id: Long?, barcode: String?, onBack:
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = leave) { Icon(GIcons.Back, contentDescription = "Назад") }
-            Text(if (id == null) "Новый продукт" else "Продукт", style = MaterialTheme.typography.headlineSmall)
+            Text(if (id == null) "Новый продукт" else "Продукт", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+            if (id != null) {
+                IconButton(onClick = { scope.launch { deleteBlocker = container.foodRepository.deleteBlocker(id); confirmDelete = true } }) {
+                    Icon(GIcons.Trash, "Удалить продукт")
+                }
+            }
         }
         val s = state ?: return@Column
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -103,4 +112,29 @@ fun FoodEditScreen(container: AppContainer, id: Long?, barcode: String?, onBack:
             }
         }
     }
+    if (confirmDelete && id != null) {
+        val blocker = deleteBlocker
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(if (blocker == null) "Удалить продукт?" else "Нельзя удалить") },
+            text = {
+                Text(
+                    blocker ?: "Продукт исчезнет из каталога и шаблонов. Записи в дневнике останутся со своими цифрами. " +
+                        "Если он ещё понадобится, лучше отправить в архив.",
+                )
+            },
+            confirmButton = {
+                if (blocker == null) {
+                    TextButton(onClick = {
+                        confirmDelete = false
+                        scope.launch { container.foodRepository.delete(id); onBack() }
+                    }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+                } else {
+                    TextButton(onClick = { confirmDelete = false }) { Text("Понятно") }
+                }
+            },
+            dismissButton = if (blocker == null) ({ TextButton(onClick = { confirmDelete = false }) { Text("Отмена") } }) else null,
+        )
+    }
+
 }

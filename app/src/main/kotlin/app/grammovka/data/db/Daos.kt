@@ -42,6 +42,15 @@ interface FoodDao {
     @Query("UPDATE food SET archived = :archived, updatedAt = :ts WHERE id = :id")
     suspend fun setArchived(id: Long, archived: Boolean, ts: Long)
 
+    /** Recipes that use the food as an ingredient: recipe_item restricts its deletion. */
+    @Query("SELECT DISTINCT r.name FROM recipe_item i JOIN recipe r ON r.id = i.recipeId WHERE i.foodId = :id ORDER BY r.name")
+    suspend fun recipesUsing(id: Long): List<String>
+
+    @Query("SELECT COUNT(*) FROM recipe WHERE foodId = :id") suspend fun isRecipeFood(id: Long): Int
+
+    /** Portions and template lines cascade; log entries keep their snapshot with foodId = null. */
+    @Query("DELETE FROM food WHERE id = :id") suspend fun delete(id: Long)
+
     /** Frequent and recent foods with the grams of their last entry (chips on Today). */
     @Query(
         """SELECT f.id AS foodId, f.name AS name, f.usageCount AS usageCount, f.lastUsedAt AS lastUsedAt,

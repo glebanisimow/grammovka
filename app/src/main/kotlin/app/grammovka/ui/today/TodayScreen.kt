@@ -250,7 +250,6 @@ fun TodayScreen(
                             FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 AddMealButton { m -> vm.openCard(m); focusInput() }
                                 DayAction(GIcons.Pulse, "Тренировка") { activitySheet = ActivitySheetState(null, null) }
-                                DayAction(GIcons.Bookmark, "Шаблоны") { templatesDialog = true }
                             }
                         }
                         item { CloseDayButton { closeDialog = false } }
