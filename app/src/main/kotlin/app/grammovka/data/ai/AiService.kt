@@ -453,7 +453,7 @@ class AiService(
         val body = buildJsonObject {
             put("model", model)
             put("max_tokens", 8000)
-            put("system", systemBlocks(Prompts.PROMPT_WEEKLY_V1))
+            put("system", systemBlocks(Prompts.PROMPT_WEEKLY_V2))
             putJsonArray("messages") { addJsonObject { put("role", "user"); put("content", digest) } }
             putJsonObject("output_config") { put("effort", "medium") }
         }

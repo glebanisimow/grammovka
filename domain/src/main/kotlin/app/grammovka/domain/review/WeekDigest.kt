@@ -26,8 +26,8 @@ data class DigestDayInput(
 )
 
 /**
- * COUNTED days go into the averages. IN_PROGRESS is today while it is still open (the review comes on Sunday
- * evening, before the day ends); INCOMPLETE was closed as «записан не полностью»; EMPTY has no entries.
+ * COUNTED days go into the averages. IN_PROGRESS is today while it is still open; INCOMPLETE is marked
+ * «не считаем» by the user (with or without entries); EMPTY has no entries.
  */
 enum class DigestStatus { COUNTED, IN_PROGRESS, INCOMPLETE, EMPTY }
 
@@ -88,8 +88,8 @@ object WeekDigest {
     fun day(input: DigestDayInput, entries: List<DigestEntry>, today: LocalDate): DigestDay {
         val eaten = Nutrition.sum(entries.map { it.amount })
         val status = when {
-            entries.isEmpty() -> DigestStatus.EMPTY
             input.incomplete -> DigestStatus.INCOMPLETE
+            entries.isEmpty() -> DigestStatus.EMPTY
             input.date == today && input.state != DayState.CLOSED -> DigestStatus.IN_PROGRESS
             else -> DigestStatus.COUNTED
         }

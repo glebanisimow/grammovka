@@ -123,6 +123,8 @@ fun TodayScreen(
     /** Close dialog: null = hidden; true = close and then start / move to today (the «not today» banner). */
     var closeDialog by remember { mutableStateOf<Boolean?>(null) }
     var reopenDialog by remember { mutableStateOf(false) }
+    /** Note dialog: null = hidden; true = «не считаем» with an optional reason, false = just the note. */
+    var noteDialog by remember { mutableStateOf<Boolean?>(null) }
     var budgetDialog by remember { mutableStateOf(false) }
     /** «+ позиция»: the catalog picker for this meal, then the grams sheet for the picked food. */
     var pickerMeal by remember { mutableStateOf<Meal?>(null) }
@@ -194,11 +196,18 @@ fun TodayScreen(
             LazyColumn(Modifier.weight(1f), state = listState, contentPadding = PaddingValues(bottom = 16.dp)) {
                 val open = ui.state == app.grammovka.domain.log.DayState.OPEN
                 val closed = ui.state == app.grammovka.domain.log.DayState.CLOSED
-                item { DayHeader(ui, onCalendar = { monthSheet = true }, onReopen = { reopenDialog = true }, onClose = { closeDialog = false }) }
+                item {
+                    DayHeader(
+                        ui, onCalendar = { monthSheet = true }, onReopen = { reopenDialog = true }, onClose = { closeDialog = false },
+                        onNote = { noteDialog = false }, onSkip = { noteDialog = true }, onCount = { vm.setSkipped(false) },
+                    )
+                }
                 item { WeekStrip(ui, vm::select) }
                 if (open && ui.date != ui.today) item { NotTodayBanner(ui) { closeDialog = true } }
                 if (ui.state == app.grammovka.domain.log.DayState.NONE) {
-                    item { NotStarted(ui) { vm.startDay(ui.date) } }
+                    item { NotStarted(ui, onStart = { vm.startDay(ui.date) }, onSkip = { noteDialog = true }) }
+                    // The scale comes first in the morning, often before the day is started.
+                    item { Box(Modifier.padding(horizontal = 16.dp)) { WeightRow(ui) { weightDialog = true } } }
                 } else {
                     // The weight can be entered for a closed day too: it is not part of the food log.
                     item(key = BUDGET_KEY) { Budget(ui, onOpenProfile, onWeight = { weightDialog = true }, onExplain = { budgetDialog = true }) }
@@ -256,7 +265,14 @@ fun TodayScreen(
                         // A one-time offer, not part of the day: below everything the user works with.
                         if (ui.offerReminder) item { ReminderOffer(vm) }
                     }
-                    if (closed) item { ClosedFooter(ui, onStartToday = { vm.startDay(ui.today) }, onGoToday = { vm.select(ui.today) }) }
+                    if (closed) {
+                        item {
+                            ClosedFooter(
+                                ui, onStartToday = { vm.startDay(ui.today) }, onGoToday = { vm.select(ui.today) },
+                                onWeekly = { container.openWeekly.value = app.grammovka.domain.log.DayLedger.weekStart(ui.date).toString() },
+                            )
+                        }
+                    }
                 }
             }
             if (ui.state == app.grammovka.domain.log.DayState.OPEN) {
@@ -315,8 +331,15 @@ fun TodayScreen(
     closeDialog?.let { thenToday ->
         CloseDayDialog(
             ui, thenToday,
-            onClose = { incomplete -> vm.closeDay(incomplete, thenToday); closeDialog = null },
+            onClose = { skip -> vm.closeDay(skip, thenToday); closeDialog = null },
             onDismiss = { closeDialog = null },
+        )
+    }
+    noteDialog?.let { skip ->
+        DayNoteDialog(
+            ui, skip,
+            onSave = { text -> if (skip) vm.setSkipped(true, text) else vm.setNote(text); noteDialog = null },
+            onDismiss = { noteDialog = null },
         )
     }
     if (reopenDialog) ReopenDialog(ui, onConfirm = { vm.reopenDay(); reopenDialog = false }, onDismiss = { reopenDialog = false })
@@ -371,7 +394,7 @@ private fun ReminderOffer(vm: TodayViewModel) {
     ) {
         Text("Спрашивать утром «закрыть вчерашний день?»", style = MaterialTheme.typography.titleSmall)
         Text(
-            "Если вчерашний день остался открытым, в 9:00 придёт уведомление: «закрыть» или «не полностью». Неполные дни норма не учитывает. Время меняется в настройках.",
+            "Если вчерашний день остался открытым, в 9:00 придёт уведомление: «закрыть» или «не считать». Дни «не считаем» норма не учитывает. Время меняется в настройках.",
             style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
         )
         Row {

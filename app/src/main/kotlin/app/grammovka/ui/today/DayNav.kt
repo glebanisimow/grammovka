@@ -26,6 +26,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -74,10 +77,30 @@ fun balanceWords(v: Double): String = when {
 @Composable
 private fun balanceColor(v: Double): Color = if (v > 0.5) MaterialTheme.colorScheme.error else GTheme.extra.success
 
-/** Day title (tap → month calendar) with the lifecycle mark and, for a closed day, the hidden «reopen». */
+/**
+ * Day title (tap → month calendar) with the lifecycle mark, the ⋯ menu (note, «не считаем», reopen for a closed
+ * day) and the day's note under it.
+ */
 @Composable
-fun DayHeader(ui: TodayUi, onCalendar: () -> Unit, onReopen: () -> Unit, onClose: () -> Unit) {
+fun DayHeader(
+    ui: TodayUi, onCalendar: () -> Unit, onReopen: () -> Unit, onClose: () -> Unit,
+    onNote: () -> Unit, onSkip: () -> Unit, onCount: () -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
+    val dayMenu: @Composable () -> Unit = {
+        Box {
+            IconButton(onClick = { menu = true }) { Icon(GIcons.More, "Действия с днём") }
+            DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(text = { Text(if (ui.note == null) "Заметка к дню" else "Изменить заметку") }, onClick = { menu = false; onNote() })
+                if (ui.incomplete) {
+                    DropdownMenuItem(text = { Text("Снова считать этот день") }, onClick = { menu = false; onCount() })
+                } else {
+                    DropdownMenuItem(text = { Text("Не считать этот день") }, onClick = { menu = false; onSkip() })
+                }
+                if (ui.state == DayState.CLOSED) DropdownMenuItem(text = { Text("Открыть для правки") }, onClick = { menu = false; onReopen() })
+            }
+        }
+    }
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f).clickable(onClick = onCalendar).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(dayTitle(ui.date), style = MaterialTheme.typography.titleMedium)
@@ -89,22 +112,59 @@ fun DayHeader(ui: TodayUi, onCalendar: () -> Unit, onReopen: () -> Unit, onClose
                 Icon(GIcons.Lock, null, Modifier.size(16.dp), tint = GTheme.extra.textMuted)
                 Spacer(Modifier.width(4.dp))
                 Text("закрыт", style = MaterialTheme.typography.labelMedium, color = GTheme.extra.textMuted)
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(GIcons.More, "Действия с днём") }
-                    DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("Открыть для правки") }, onClick = { menu = false; onReopen() })
-                    }
-                }
+                dayMenu()
             }
             // The state doubles as the action: closing the day should not need a scroll to the bottom.
-            DayState.OPEN -> TextButton(onClick = onClose, Modifier.padding(end = 4.dp)) {
-                Icon(GIcons.Lock, null, Modifier.size(16.dp), tint = GTheme.extra.accentText)
-                Spacer(Modifier.width(6.dp))
-                Text("Закрыть", style = MaterialTheme.typography.labelLarge, color = GTheme.extra.accentText)
+            DayState.OPEN -> {
+                TextButton(onClick = onClose) {
+                    Icon(GIcons.Lock, null, Modifier.size(16.dp), tint = GTheme.extra.accentText)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Закрыть", style = MaterialTheme.typography.labelLarge, color = GTheme.extra.accentText)
+                }
+                dayMenu()
             }
-            DayState.NONE -> Spacer(Modifier.width(12.dp))
+            DayState.NONE -> dayMenu()
         }
     }
+    if (ui.incomplete || ui.note != null) {
+        Text(
+            listOfNotNull("не считаем".takeIf { ui.incomplete }, ui.note).joinToString(" · ").replaceFirstChar { it.uppercase() },
+            Modifier.fillMaxWidth().clickable(onClick = onNote).padding(horizontal = 16.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
+        )
+    }
+}
+
+/**
+ * The day's note, or, with [skip], «не считаем» with an optional reason. The note shows under the day's
+ * title and goes to the weekly review.
+ */
+@Composable
+fun DayNoteDialog(ui: TodayUi, skip: Boolean, onSave: (String) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf(ui.note.orEmpty()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (skip) "Не считать ${dayShort(ui.date)}?" else "Заметка · ${dayShort(ui.date)}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (skip) {
+                    Text(
+                        "День не пойдёт ни в расчёт нормы, ни в разбор недели, а недельный бюджет посчитает его ровно по цели: " +
+                            "ни долга, ни запаса. Записывать еду можно, если хочется.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                OutlinedTextField(
+                    text, { text = it.take(200) }, Modifier.fillMaxWidth(),
+                    label = { Text(if (skip) "Почему (необязательно)" else "Заметка") },
+                    placeholder = { Text("например, в поездке") },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(text) }) { Text(if (skip) "Не считать" else "Сохранить") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }
 
 /** Mon–Sun of the shown day's week; swipe for other weeks between the first day and this week. */
@@ -181,8 +241,13 @@ private fun DayCellView(
             }
         }
         val b = cell?.balance
+        val skipped = cell?.incomplete == true && cell.state != DayState.NONE
         Text(
-            if (b != null) signedKcal(b) else " ",
+            when {
+                skipped -> "—"
+                b != null -> signedKcal(b)
+                else -> " "
+            },
             style = MaterialTheme.typography.labelSmall,
             color = if (b != null && cell.incomplete != true) balanceColor(b) else GTheme.extra.textMuted,
             maxLines = 1,
@@ -230,7 +295,7 @@ fun MonthSheet(ui: TodayUi, onSelect: (LocalDate) -> Unit, onDismiss: () -> Unit
                 w = w.plusWeeks(1)
             }
             Text(
-                "✓ закрыт · ○ открыт · число — итог закрытого дня: съедено минус расход. С минусом — дефицит, с плюсом — профицит.",
+                "✓ закрыт · ○ открыт · — не считаем · число — итог закрытого дня: съедено минус расход. С минусом — дефицит, с плюсом — профицит.",
                 Modifier.padding(top = 12.dp, start = 4.dp), style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
             )
         }
@@ -258,7 +323,7 @@ fun NotTodayBanner(ui: TodayUi, onClose: () -> Unit) {
 
 /** A day that was never started: today gets «Начать день», a skipped past day a quieter «внести задним числом». */
 @Composable
-fun NotStarted(ui: TodayUi, onStart: () -> Unit) {
+fun NotStarted(ui: TodayUi, onStart: () -> Unit, onSkip: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (ui.date == ui.today) {
             Text("День ещё не начат.", style = MaterialTheme.typography.bodyLarge)
@@ -267,9 +332,13 @@ fun NotStarted(ui: TodayUi, onStart: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
             )
             Button(onClick = onStart, shape = MaterialTheme.shapes.small) { Text("Начать день · ${dayShort(ui.date)}") }
+            TextButton(onClick = onSkip, contentPadding = PaddingValues(0.dp)) { Text("Сегодня не считаю", color = GTheme.extra.textMuted) }
         } else {
             Text("Этот день не вели.", style = MaterialTheme.typography.bodyLarge)
-            TextButton(onClick = onStart, contentPadding = PaddingValues(0.dp)) { Text("Внести задним числом", color = GTheme.extra.accentText) }
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                TextButton(onClick = onStart, contentPadding = PaddingValues(0.dp)) { Text("Внести задним числом", color = GTheme.extra.accentText) }
+                TextButton(onClick = onSkip, contentPadding = PaddingValues(0.dp)) { Text("Отметить «не считаем»", color = GTheme.extra.textMuted) }
+            }
         }
     }
 }
@@ -286,13 +355,21 @@ fun CloseDayButton(onClick: () -> Unit) {
 
 /** Bottom of a closed day: the way forward. */
 @Composable
-fun ClosedFooter(ui: TodayUi, onStartToday: () -> Unit, onGoToday: () -> Unit) {
+fun ClosedFooter(ui: TodayUi, onStartToday: () -> Unit, onGoToday: () -> Unit, onWeekly: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            if (ui.ledger.incomplete(ui.date)) "День закрыт как записанный не полностью: в расчёт нормы он не идёт."
+            if (ui.incomplete) "День закрыт и не считается: в норму, недельный бюджет и разбор недели он не идёт."
             else "День закрыт: записи не меняются, итог учтён.",
             style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
         )
+        // Sunday closes the week: the review is written now, over the whole week.
+        if (ui.date.dayOfWeek == java.time.DayOfWeek.SUNDAY) {
+            OutlinedButton(onClick = onWeekly, shape = MaterialTheme.shapes.small) {
+                Icon(GIcons.Progress, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Неделя закрыта · разбор недели")
+            }
+        }
         when {
             ui.ledger.canStartToday -> Button(onClick = onStartToday, shape = MaterialTheme.shapes.small) { Text("Начать новый день · ${dayShort(ui.today)}") }
             ui.date != ui.today -> OutlinedButton(onClick = onGoToday, shape = MaterialTheme.shapes.small) { Text("К сегодняшнему дню") }
@@ -301,7 +378,7 @@ fun ClosedFooter(ui: TodayUi, onStartToday: () -> Unit, onGoToday: () -> Unit) {
 }
 
 @Composable
-fun CloseDayDialog(ui: TodayUi, thenToday: Boolean, onClose: (incomplete: Boolean) -> Unit, onDismiss: () -> Unit) {
+fun CloseDayDialog(ui: TodayUi, thenToday: Boolean, onClose: (skip: Boolean?) -> Unit, onDismiss: () -> Unit) {
     val m = ui.model
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -311,16 +388,19 @@ fun CloseDayDialog(ui: TodayUi, thenToday: Boolean, onClose: (incomplete: Boolea
                 Text("Записи этого дня больше нельзя будет менять.", style = MaterialTheme.typography.bodyMedium)
                 val summary = buildString {
                     append("Съедено ${Fmt.kcal(ui.eaten.kcal)} ккал")
-                    if (m != null) append(" · ${balanceWords(m.balance(ui.eaten.kcal).balance)}")
+                    if (ui.incomplete) append(" · день не считаем")
+                    else if (m != null) append(" · ${balanceWords(m.balance(ui.eaten.kcal).balance)}")
                 }
                 Text(summary, style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted)
                 if (thenToday) Text("Затем начнётся ${dayShort(ui.today)}.", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
-                TextButton(onClick = { onClose(true) }, contentPadding = PaddingValues(0.dp)) {
-                    Text("Закрыть, но день записан не полностью", color = GTheme.extra.textMuted, style = MaterialTheme.typography.bodySmall)
+                if (!ui.incomplete) {
+                    TextButton(onClick = { onClose(true) }, contentPadding = PaddingValues(0.dp)) {
+                        Text("Закрыть и не считать этот день", color = GTheme.extra.textMuted, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onClose(false) }) { Text("Закрыть день") } },
+        confirmButton = { TextButton(onClick = { onClose(null) }) { Text("Закрыть день") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )
 }

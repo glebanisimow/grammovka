@@ -112,8 +112,9 @@ class WeeklyReviewViewModel(private val c: AppContainer, initial: LocalDate?, au
                     val changed = view?.monday != m
                     view = v
                     if (changed) showSaved(m)
-                    // From the notification: write the review at once, when the model's numbers are in.
-                    if (autoPending && hasKey && model != null && v.hasData && report == null && !running) {
+                    // From the notification: write the review at once, when the model's numbers are in. A report
+                    // written before Sunday was closed is replaced.
+                    if (autoPending && hasKey && model != null && v.hasData && !running && report.let { it == null || v.outdated(it) }) {
                         autoPending = false
                         generate()
                     }
@@ -227,26 +228,36 @@ fun WeeklyReviewScreen(container: AppContainer, week: LocalDate?, auto: Boolean,
                         OutlinedButton(onClick = onOpenKeys, shape = MaterialTheme.shapes.small) { Text("Открыть ключи API") }
                     }
                     vm.report == null -> {
-                        val today = v.days.lastOrNull()?.takeIf { it.status == DigestStatus.IN_PROGRESS }
-                        if (today != null) {
+                        if (!v.closed) {
                             Text(
-                                "Сегодняшний день ещё открыт: в средние он не входит. Чтобы разбор учёл его целиком, сначала запишите и закройте день.",
+                                "Неделя ещё не закрыта: разбор выйдет по неполным данным. Лучше закрыть воскресенье, тогда разбор придёт сам.",
                                 style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
                             )
                         }
-                        Button(onClick = vm::generate, Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) { Text("Разобрать неделю") }
+                        Button(onClick = vm::generate, Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) {
+                            Text(if (v.closed) "Разобрать неделю" else "Разобрать неполную неделю")
+                        }
                     }
                     else -> {
                         val r = vm.report!!
-                        Text(
-                            "Написан ${stamp.format(Instant.ofEpochMilli(r.generatedAt).atZone(ZoneId.systemDefault()))} по цифрам на тот момент.",
-                            style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
-                        )
-                        OutlinedButton(onClick = vm::generate, shape = MaterialTheme.shapes.small) { Text("Разобрать заново") }
+                        val written = stamp.format(Instant.ofEpochMilli(r.generatedAt).atZone(ZoneId.systemDefault()))
+                        if (v.closed && v.outdated(r)) {
+                            Text(
+                                "Написан $written, до закрытия недели: цифры с тех пор изменились.",
+                                style = MaterialTheme.typography.bodySmall, color = GTheme.extra.warning,
+                            )
+                            Button(onClick = vm::generate, Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) { Text("Переписать по всей неделе") }
+                        } else {
+                            Text(
+                                if (v.closed) "Написан $written." else "Написан $written, неделя ещё не закрыта.",
+                                style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+                            )
+                            OutlinedButton(onClick = vm::generate, shape = MaterialTheme.shapes.small) { Text("Разобрать заново") }
+                        }
                     }
                 }
                 Text(
-                    "Claude получает только цифры недели: итоги по дням и приёмам, продукты с наибольшим вкладом, тренировки и три прошлые недели. Все суммы считает приложение.",
+                    "Claude получает цифры недели: итоги и записи по дням, заметки к дням, тренировки и три прошлые недели. Дни «не считаем» он не разбирает. Все суммы считает приложение.",
                     style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
                 )
             }
@@ -288,7 +299,7 @@ private fun Numbers(v: WeekView) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 12.dp, bottom = 4.dp)) {
         HeadCell("День", 1.1f, TextAlign.Start); HeadCell("Съедено", 1f); HeadCell("Цель", 1f); HeadCell("Итог", 1f)
     }
-    v.days.forEach { d -> DayLine(d) }
+    v.days.forEach { d -> DayLine(d, v.notes[d.date]) }
 }
 
 @Composable
@@ -297,7 +308,7 @@ private fun androidx.compose.foundation.layout.RowScope.HeadCell(text: String, w
 }
 
 @Composable
-private fun DayLine(d: DigestDay) {
+private fun DayLine(d: DigestDay, note: String?) {
     val muted = GTheme.extra.textMuted
     val dim = d.status != DigestStatus.COUNTED
     val color = if (dim) muted else MaterialTheme.colorScheme.onSurface
@@ -306,13 +317,13 @@ private fun DayLine(d: DigestDay) {
             Text("${weekdays[d.date.dayOfWeek.value - 1]} ${d.date.dayOfMonth}", style = MaterialTheme.typography.bodyMedium, color = color)
             val mark = when (d.status) {
                 DigestStatus.IN_PROGRESS -> "идёт"
-                DigestStatus.INCOMPLETE -> "не полностью"
+                DigestStatus.INCOMPLETE -> "не считаем"
                 DigestStatus.EMPTY -> "нет записей"
                 DigestStatus.COUNTED -> null
             }
             mark?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = muted) }
         }
-        val none = d.status == DigestStatus.EMPTY
+        val none = d.status == DigestStatus.EMPTY || d.eaten.kcal <= 0
         Text(if (none) "—" else Fmt.kcal(d.eaten.kcal), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = color, textAlign = TextAlign.End)
         Text(d.target?.let { Fmt.kcal(it + d.activity) } ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = muted, textAlign = TextAlign.End)
         val b = d.balance
@@ -321,8 +332,9 @@ private fun DayLine(d: DigestDay) {
             b > 0.5 -> MaterialTheme.colorScheme.error
             else -> GTheme.extra.success
         }
-        Text(b?.let(::signedKcal) ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = balanceColor, textAlign = TextAlign.End)
+        Text(b?.takeIf { d.status != DigestStatus.INCOMPLETE }?.let(::signedKcal) ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = balanceColor, textAlign = TextAlign.End)
     }
+    note?.let { Text(it, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 6.dp), style = MaterialTheme.typography.bodySmall, color = muted) }
     HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
 }
 
@@ -337,7 +349,7 @@ private fun Fact(label: String, value: String, note: String? = null) {
     }
 }
 
-/** The review's plain-text format (prompt WEEKLY_V1): «## » headings, «- » list lines, paragraphs. */
+/** The review's plain-text format (prompt WEEKLY_V2): «## » headings, «- » list lines, paragraphs. */
 @Composable
 private fun ReportText(text: String) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

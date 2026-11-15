@@ -26,6 +26,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import app.grammovka.ui.common.WeightDialog
+import app.grammovka.ui.common.NumberField
+import app.grammovka.ui.common.toDecimal
+import androidx.compose.ui.text.input.ImeAction
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -76,6 +79,7 @@ fun ProgressScreen(container: AppContainer, onOpenWeekly: () -> Unit) {
     val days = state?.days.orEmpty()
     val scope = rememberCoroutineScope()
     var editWeight by remember { mutableStateOf<app.grammovka.data.db.WeightEntryEntity?>(null) }
+    var addWeight by remember { mutableStateOf(false) }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { ScreenTitle("Прогресс") }
@@ -146,7 +150,7 @@ fun ProgressScreen(container: AppContainer, onOpenWeekly: () -> Unit) {
                 zeroBased = true,
             )
         }
-        item { Note("Бледные столбцы — дни, отмеченные как записанные не полностью: модель их не учитывает.") }
+        item { Note("Бледные столбцы — дни с отметкой «не считаем»: модель их не учитывает.") }
 
         activity?.let { (steps, workouts) ->
             item { SectionLabel("Активность · Health Connect") }
@@ -204,8 +208,18 @@ fun ProgressScreen(container: AppContainer, onOpenWeekly: () -> Unit) {
             item { Line("Взвешиваний в окне", "${s.weighIns}") }
         }
         item { SectionLabel("Взвешивания") }
+        item {
+            androidx.compose.material3.OutlinedButton(
+                onClick = { addWeight = true }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Icon(GIcons.Plus, null, Modifier.size(16.dp))
+                androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                Text("Взвешивание")
+            }
+        }
         if (weights.isEmpty()) {
-            item { Text("Пока нет. Вес вводится на экране «Сегодня».", Modifier.padding(horizontal = 16.dp), color = GTheme.extra.textMuted) }
+            item { Text("Пока нет.", Modifier.padding(horizontal = 16.dp), color = GTheme.extra.textMuted) }
         } else {
             item { Note("Нажмите на взвешивание, чтобы исправить или удалить его.") }
         }
@@ -214,12 +228,53 @@ fun ProgressScreen(container: AppContainer, onOpenWeekly: () -> Unit) {
             Line(dayLabel(w.date, today), "${Fmt.kg(w.kg)} кг", trend?.let { "тренд ${Fmt.kg(it)}" }, onClick = { editWeight = w })
         }
     }
+    if (addWeight) {
+        AddWeightDialog(
+            today, existing = { d -> weights.firstOrNull { it.date == d }?.kg },
+            onDismiss = { addWeight = false },
+        ) { d, kg ->
+            addWeight = false
+            scope.launch { container.weightRepository.setManual(d, kg) }
+        }
+    }
     editWeight?.let { w ->
         WeightDialog(w.kg, onDismiss = { editWeight = null }, title = "Вес · ${dayLabel(w.date, today)}") { kg ->
             editWeight = null
             scope.launch { if (kg == null) container.weightRepository.delete(w.date) else container.weightRepository.setManual(w.date, kg) }
         }
     }
+}
+
+/** A new weigh-in for today or an earlier date (‹ › steps the day); an existing value of that date is replaced. */
+@Composable
+private fun AddWeightDialog(today: LocalDate, existing: (LocalDate) -> Double?, onDismiss: () -> Unit, onSave: (LocalDate, Double) -> Unit) {
+    var date by remember { mutableStateOf(today) }
+    var v by remember { mutableStateOf("") }
+    val kg = v.toDecimal()
+    val ok = kg != null && kg in 30.0..300.0
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Взвешивание") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.IconButton(onClick = { date = date.minusDays(1) }, enabled = date.isAfter(today.minusDays(90))) {
+                        Icon(GIcons.Prev, "Предыдущий день")
+                    }
+                    Text(dayLabel(date, today), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+                    androidx.compose.material3.IconButton(onClick = { date = date.plusDays(1) }, enabled = date.isBefore(today)) {
+                        Icon(GIcons.Next, "Следующий день")
+                    }
+                }
+                NumberField(v, { v = it }, "Вес", suffix = "кг", imeAction = ImeAction.Done, isError = v.isNotEmpty() && !ok)
+                existing(date)?.let {
+                    Text("За этот день уже есть ${Fmt.kg(it)} кг, значение заменится.", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
+                }
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = { onSave(date, kg!!) }, enabled = ok) { Text("Сохранить") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }
 
 @Composable

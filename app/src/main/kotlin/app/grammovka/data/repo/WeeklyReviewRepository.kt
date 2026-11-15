@@ -41,9 +41,17 @@ data class WeekView(
     val previous: List<WeekTotals>,
     val topFoods: List<TopFood>,
     val workouts: List<ActivityEntryEntity>,
+    /** The user's notes by day («в поездке»). */
+    val notes: Map<LocalDate, String>,
+    /** When the week's Sunday was closed; null while the week is not over. */
+    val sundayClosedAt: Long?,
     val json: String,
 ) {
     val hasData: Boolean get() = days.any { it.eaten.kcal > 0 }
+    val closed: Boolean get() = sundayClosedAt != null
+
+    /** A report written before the week was closed (or before Sunday was reopened and closed again) is out of date. */
+    fun outdated(r: WeeklyReport): Boolean = sundayClosedAt == null || r.generatedAt < sundayClosedAt
 }
 
 /**
@@ -97,10 +105,12 @@ class WeeklyReviewRepository(private val dir: File, db: AppDatabase) {
         val top = WeekDigest.topFoods((0L..6L).flatMap { entries[monday.plusDays(it)].orEmpty() })
         val workouts = activities.between(monday, to)
         val last = model?.snapshots?.get(minOf(today, to)) ?: model?.snapshots?.values?.lastOrNull { !it.date.isAfter(to) }
+        val notes = (0L..6L).map { monday.plusDays(it) }.mapNotNull { d -> marks[d]?.note?.let { d to it } }.toMap()
+        val sundayClosedAt = marks[to]?.closedAt
 
         val body = buildJsonObject {
             put("today", today.toString())
-            putJsonObject("week") { put("from", monday.toString()); put("to", to.toString()) }
+            putJsonObject("week") { put("from", monday.toString()); put("to", to.toString()); put("closed", sundayClosedAt != null) }
             putJsonObject("goal") {
                 put("ratePercentPerWeek", profile.ratePercentPerWeek)
                 last?.let { put("targetLossKgPerWeek", r1(profile.ratePercentPerWeek / 100 * it.trendWeight)) }
@@ -118,7 +128,8 @@ class WeeklyReviewRepository(private val dir: File, db: AppDatabase) {
                     addJsonObject {
                         put("date", d.date.toString())
                         put("weekday", d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, RU))
-                        put("status", d.status.name.lowercase())
+                        put("status", if (d.status == app.grammovka.domain.review.DigestStatus.INCOMPLETE) "not_counted" else d.status.name.lowercase())
+                        notes[d.date]?.let { put("note", it) }
                         if (d.eaten.kcal > 0) {
                             put("kcal", r0(d.eaten.kcal)); put("protein", r0(d.eaten.protein)); put("fat", r0(d.eaten.fat)); put("carbs", r0(d.eaten.carbs))
                             putJsonObject("meals") {
@@ -127,6 +138,17 @@ class WeeklyReviewRepository(private val dir: File, db: AppDatabase) {
                             put("kcalAfter21", r0(d.lateKcal))
                             d.firstMeal?.let { put("firstMeal", it.toString().take(5)) }
                             d.lastMeal?.let { put("lastMeal", it.toString().take(5)) }
+                            putJsonArray("entries") {
+                                entries[d.date].orEmpty().sortedBy { it.time }.forEach { e ->
+                                    addJsonObject {
+                                        put("time", e.time.toString().take(5))
+                                        put("food", e.name)
+                                        put("g", r0(e.grams))
+                                        put("kcal", r0(e.amount.kcal))
+                                        e.meal?.let { put("meal", if (it == Meal.SNACK) "snack" else it.name.lowercase()) }
+                                    }
+                                }
+                            }
                         }
                         d.target?.let { put("targetKcal", r0(it)) }
                         if (d.activity > 0) put("workoutKcal", r0(d.activity))
@@ -145,11 +167,19 @@ class WeeklyReviewRepository(private val dir: File, db: AppDatabase) {
             }
             putJsonArray("workouts") {
                 workouts.forEach { w ->
-                    addJsonObject { put("date", w.date.toString()); put("title", w.note ?: w.type.ru); put("minutes", r0(w.minutes)); put("kcal", r0(w.kcal)) }
+                    addJsonObject {
+                        put("date", w.date.toString())
+                        put("start", w.time.toString().take(5))
+                        put("title", w.note ?: w.type.ru)
+                        if (w.description.isNotBlank()) put("description", w.description)
+                        put("minutes", r0(w.minutes))
+                        w.distanceKm?.let { put("distanceKm", r1(it)) }
+                        put("kcal", r0(w.kcal))
+                    }
                 }
             }
         }
-        return WeekView(monday, today, days, totals, previous, top, workouts, body.toString())
+        return WeekView(monday, today, days, totals, previous, top, workouts, notes, sundayClosedAt, body.toString())
     }
 
     private fun JsonObjectBuilder.totals(t: WeekTotals) {

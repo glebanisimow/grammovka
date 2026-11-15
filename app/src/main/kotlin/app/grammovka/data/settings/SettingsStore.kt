@@ -60,10 +60,14 @@ data class ReminderSettings(
     val offered: Boolean = false,
 )
 
-/** Weekly review: a notification on Sunday evening that opens the review screen. On by default (user request 2026-11-10). */
+/**
+ * Weekly review: a notification when the week's Sunday is closed (user request 2026-11-15; it used to come on
+ * Sunday at 20:00, before the week was over). On by default. [notifiedWeek] is the Monday of the last week
+ * offered, so reopening and closing Sunday again does not notify twice.
+ */
 data class WeeklyReviewSettings(
     val enabled: Boolean = true,
-    val minuteOfDay: Int = 20 * 60,
+    val notifiedWeek: LocalDate? = null,
 )
 
 data class AppSettings(
@@ -93,7 +97,7 @@ class SettingsStore(private val context: Context) {
         val reminderMinute = intPreferencesKey("reminder_minute")
         val reminderOffered = booleanPreferencesKey("reminder_offered")
         val weeklyOn = booleanPreferencesKey("weekly_review_enabled")
-        val weeklyMinute = intPreferencesKey("weekly_review_minute")
+        val weeklyNotified = stringPreferencesKey("weekly_review_notified_week")
         fun model(p: AiPurpose) = stringPreferencesKey("ai_model_${p.name}")
     }
 
@@ -111,7 +115,7 @@ class SettingsStore(private val context: Context) {
             ),
             weekly = WeeklyReviewSettings(
                 enabled = p[K.weeklyOn] ?: d.weekly.enabled,
-                minuteOfDay = p[K.weeklyMinute] ?: d.weekly.minuteOfDay,
+                notifiedWeek = p[K.weeklyNotified]?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
             ),
             profile = ProfileSettings(
                 sex = p[K.sex]?.let { runCatching { Sex.valueOf(it) }.getOrNull() },
@@ -147,7 +151,7 @@ class SettingsStore(private val context: Context) {
     suspend fun setWeekly(w: WeeklyReviewSettings) {
         context.settingsDataStore.edit {
             it[K.weeklyOn] = w.enabled
-            it[K.weeklyMinute] = w.minuteOfDay
+            if (w.notifiedWeek != null) it[K.weeklyNotified] = w.notifiedWeek.toString() else it.remove(K.weeklyNotified)
         }
     }
 

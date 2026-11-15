@@ -53,7 +53,13 @@ class AppContainer(context: Context) {
     val updateSource: UpdateSource by lazy { UpdateRepository(appContext) }
 
     val foodRepository by lazy { FoodRepository(database.foodDao()) }
-    val logRepository by lazy { LogRepository(database) }
+    val logRepository by lazy {
+        LogRepository(
+            database,
+            onClosed = { app.grammovka.notify.WeeklyReview.onDayClosed(this, it) },
+            onStarted = { app.grammovka.notify.WeeklyReview.onDayStarted(this, it) },
+        )
+    }
     val templateRepository by lazy { app.grammovka.data.repo.TemplateRepository(database) }
     val pendingRepository by lazy { app.grammovka.data.repo.PendingRepository(appContext, database.pendingDao()) }
 

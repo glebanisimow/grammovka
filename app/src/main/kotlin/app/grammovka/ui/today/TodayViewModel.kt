@@ -62,7 +62,10 @@ data class TodayUi(
     val model: DayModel? = null,
     val profileComplete: Boolean = true,
     val weightKg: Double? = null,
+    /** «Не считаем»: the day stays out of the norm, the weekly budget and the review. */
     val incomplete: Boolean = false,
+    /** The user's note for the day («в поездке»). */
+    val note: String? = null,
     val chips: List<Chip> = emptyList(),
     val pending: Int = 0,
     val offerReminder: Boolean = false,
@@ -113,7 +116,7 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
     private val opened = MutableStateFlow<Map<LocalDate, List<OpenCard>>>(emptyMap())
 
     private data class DayData(
-        val entries: List<LogEntryEntity>, val kg: Double?, val incomplete: Boolean, val repeats: List<RepeatMeal>,
+        val entries: List<LogEntryEntity>, val kg: Double?, val status: app.grammovka.data.db.DayStatusEntity?, val repeats: List<RepeatMeal>,
         val activities: List<app.grammovka.data.db.ActivityEntryEntity>,
     )
 
@@ -121,13 +124,13 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
         combine(
             c.logRepository.observeDay(d), c.weightRepository.observe(d), c.logRepository.observeStatus(d), c.logRepository.observeDay(d.minusDays(1)),
             c.activityRepository.observeDay(d),
-        ) { e, w, inc, prev, acts ->
+        ) { e, w, st, prev, acts ->
             val today = e.mapNotNull { it.meal }.toSet()
             // Snacks are not repeated: there can be several a day and they are rarely the same.
             val repeats = prev.filter { it.meal != null && it.meal != Meal.SNACK }.groupBy { it.meal!! }
                 .filterKeys { it !in today }
                 .toSortedMap().map { (m, list) -> RepeatMeal(m, list) }
-            DayData(e, w?.kg, inc, repeats, acts)
+            DayData(e, w?.kg, st, repeats, acts)
         }
     }
 
@@ -154,7 +157,7 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
     val ui: StateFlow<TodayUi> = combine(
         combine(date, ledger, today, ::Triple), dayData, c.modelHub.state, c.settingsStore.settings, combine(shortcuts, cards, ::Pair),
     ) { (d, l, t), day, model, settings, (sc, cardState) ->
-        val (entries, w, inc, repeats) = day
+        val (entries, w, st, repeats) = day
         val (used, templates, pending) = sc
         val (p, open) = cardState
         val blocks = MealBlocks.group(entries, { it.time }, { it.meal })
@@ -181,7 +184,8 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
             model = dayModel,
             profileComplete = settings.profile.complete,
             weightKg = w,
-            incomplete = inc,
+            incomplete = st?.incomplete == true,
+            note = st?.note,
             chips = chips(used),
             repeats = repeats,
             templates = templates,
@@ -216,10 +220,10 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     /** Closes the shown day; [thenToday] also starts today (if not yet) and moves there. */
-    fun closeDay(incomplete: Boolean, thenToday: Boolean) {
+    fun closeDay(skip: Boolean?, thenToday: Boolean) {
         val d = date.value
         viewModelScope.launch {
-            c.logRepository.closeDay(d, incomplete)
+            c.logRepository.closeDay(d, skip)
             opened.value = opened.value - d
             if (thenToday) {
                 val t = LocalDate.now()
@@ -227,6 +231,17 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
                 date.value = t
             }
         }
+    }
+
+    fun setNote(note: String?) {
+        val d = date.value
+        viewModelScope.launch { c.logRepository.setNote(d, note) }
+    }
+
+    /** «Не считаем» on or off for the shown day; [note] replaces the day's note when given. */
+    fun setSkipped(skipped: Boolean, note: String? = null) {
+        val d = date.value
+        viewModelScope.launch { c.logRepository.setSkipped(d, skipped, note) }
     }
 
     fun reopenDay() {

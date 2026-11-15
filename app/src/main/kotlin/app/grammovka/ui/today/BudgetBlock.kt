@@ -74,6 +74,17 @@ fun Budget(ui: TodayUi, onOpenProfile: () -> Unit, onWeight: () -> Unit, onExpla
     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         val m = ui.model
         when {
+            // «Не считаем»: no budget pressure on this day, only what was eaten, if anything.
+            ui.incomplete -> Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("НЕ СЧИТАЕМ", style = MaterialTheme.typography.labelMedium, color = GTheme.extra.textMuted)
+                Text(
+                    "Этот день не идёт ни в норму, ни в разбор недели. Недельный бюджет считает его ровно по цели.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (ui.eaten.kcal > 0) {
+                    Text("Записано ${Fmt.kcal(ui.eaten.kcal)} ккал", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
+                }
+            }
             !ui.profileComplete -> Notice("Заполните профиль: пол, год рождения и рост нужны, чтобы считать бюджет.", "Открыть профиль", onOpenProfile)
             m == null -> Notice("Введите вес: с первого взвешивания появится цель на день.", "Ввести вес", onWeight)
             else -> {
@@ -118,18 +129,39 @@ fun Budget(ui: TodayUi, onOpenProfile: () -> Unit, onWeight: () -> Unit, onExpla
                 Flags(m)
             }
         }
-        Row(
-            Modifier.fillMaxWidth().clickable(onClick = onWeight).heightIn(min = 48.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        if (ui.model != null || ui.weightKg != null || ui.incomplete) WeightRow(ui, onWeight)
+    }
+}
+
+/**
+ * The day's weigh-in. Shown in every state of the day, also before «Начать день» (the scale comes first in
+ * the morning). Without a weigh-in today it is a visible button, otherwise a quiet line to correct it.
+ */
+@Composable
+fun WeightRow(ui: TodayUi, onWeight: () -> Unit) {
+    val trend = ui.model?.snapshot?.trendWeight
+    if (ui.weightKg == null && ui.date == ui.today) {
+        androidx.compose.material3.OutlinedButton(
+            onClick = onWeight, Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = MaterialTheme.shapes.small,
         ) {
-            Icon(GIcons.Scale, null, Modifier.size(20.dp), tint = GTheme.extra.textMuted)
-            Spacer(Modifier.width(12.dp))
-            Text(
-                ui.weightKg?.let { "Вес ${Fmt.kg(it)} кг" } ?: "Вес не введён",
-                Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
-            )
-            m?.let { Text("тренд ${Fmt.kg(it.snapshot.trendWeight)}", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted) }
+            Icon(GIcons.Scale, null, Modifier.size(18.dp), tint = GTheme.extra.accentText)
+            Spacer(Modifier.width(8.dp))
+            Text("Взвеситься", Modifier.weight(1f), color = GTheme.extra.accentText)
+            trend?.let { Text("тренд ${Fmt.kg(it)}", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted) }
         }
+        return
+    }
+    Row(
+        Modifier.fillMaxWidth().clickable(onClickLabel = "Изменить вес", onClick = onWeight).heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(GIcons.Scale, null, Modifier.size(20.dp), tint = GTheme.extra.textMuted)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            ui.weightKg?.let { "Вес ${Fmt.kg(it)} кг" } ?: "Вес не введён",
+            Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
+        )
+        trend?.let { Text("тренд ${Fmt.kg(it)}", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted) }
     }
 }
 
@@ -155,7 +187,7 @@ private fun Flags(m: DayModel) {
 @Composable
 fun PinnedBudget(ui: TodayUi, modifier: Modifier = Modifier) {
     val m = ui.model ?: return
-    val h = headline(ui, m)
+    val h = if (ui.incomplete) Headline("Не считаем", "", GTheme.extra.textMuted) else headline(ui, m)
     Column(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(dayShort(ui.date), style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted)

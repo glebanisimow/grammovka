@@ -10,7 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.grammovka.GrammovkaApp
 import app.grammovka.data.settings.ReminderSettings
-import app.grammovka.data.settings.WeeklyReviewSettings
+import app.grammovka.di.AppContainer
 import app.grammovka.domain.log.DayLedger
 import java.time.DayOfWeek
 import app.grammovka.domain.time.Daily
@@ -58,40 +58,46 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
 }
 
 /**
- * Weekly review (spec, phase 3): Sunday evening → notification → the review screen. Same self-rescheduling
- * one-time work as the morning question.
+ * Weekly review (spec, phase 3): the notification comes when the week is over, i.e. when its Sunday is closed
+ * (user request 2026-11-15: the Sunday 20:00 timer offered a review of an unfinished week). If Sunday was never
+ * started, it comes when a day of the next week is started. Each week is offered once.
  */
 object WeeklyReview {
+    /** Name of the old Sunday-evening timer; only cancelled now. */
     private const val NAME = "weekly-review"
 
-    fun schedule(context: Context, w: WeeklyReviewSettings) {
-        val wm = WorkManager.getInstance(context)
-        if (!w.enabled) {
-            wm.cancelUniqueWork(NAME)
-            return
-        }
-        val delay = Daily.delayUntilNextWeekday(LocalDateTime.now(), DayOfWeek.SUNDAY, w.minuteOfDay)
-        val request = OneTimeWorkRequestBuilder<WeeklyReviewWorker>().setInitialDelay(delay.toMillis(), TimeUnit.MILLISECONDS).build()
-        wm.enqueueUniqueWork(NAME, ExistingWorkPolicy.REPLACE, request)
+    fun cancelTimer(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(NAME)
+    }
+
+    suspend fun onDayClosed(c: AppContainer, date: LocalDate) {
+        if (date.dayOfWeek == DayOfWeek.SUNDAY) offer(c, DayLedger.weekStart(date))
+    }
+
+    suspend fun onDayStarted(c: AppContainer, date: LocalDate) {
+        val monday = DayLedger.weekStart(date).minusWeeks(1)
+        val sunday = monday.plusDays(6)
+        val mark = c.database.dayStatusDao().get(sunday)
+        if (mark?.startedAt == null && mark?.closedAt == null) offer(c, monday)
+    }
+
+    private suspend fun offer(c: AppContainer, monday: LocalDate) {
+        val w = c.settingsStore.current().weekly
+        if (!w.enabled) return
+        if (w.notifiedWeek != null && !w.notifiedWeek.isBefore(monday)) return
+        val days = c.logRepository.intake(monday, monday.plusDays(6)).values.count { it.hasEntries && !it.incomplete }
+        if (days == 0) return
+        c.settingsStore.setWeekly(w.copy(notifiedWeek = monday))
+        Notifications.weeklyReady(c.appContext, monday, days)
     }
 }
 
+/** The old Sunday-evening timer; work queued by an earlier version may still run once and does nothing. */
 class WeeklyReviewWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result {
-        val c = (applicationContext as GrammovkaApp).container
-        val settings = c.settingsStore.current().weekly
-        if (!settings.enabled) return Result.success()
-        val today = LocalDate.now()
-        val monday = DayLedger.weekStart(today)
-        // Nothing to review in a week without entries.
-        val days = c.logRepository.intake(monday, today).values.count { it.hasEntries }
-        if (days > 0) Notifications.weeklyReady(applicationContext, monday, days)
-        WeeklyReview.schedule(applicationContext, settings)
-        return Result.success()
-    }
+    override suspend fun doWork(): Result = Result.success()
 }
 
-/** «Закрыть» / «Не полностью» from the notification: closes the day without opening the app. */
+/** «Закрыть» / «Не считать» from the notification: closes the day without opening the app. */
 class ReminderActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
@@ -101,7 +107,7 @@ class ReminderActionReceiver : BroadcastReceiver() {
         val app = context.applicationContext as GrammovkaApp
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                app.container.logRepository.closeDay(date, incomplete)
+                app.container.logRepository.closeDay(date, if (incomplete) true else null)
                 Notifications.cancel(context, Notifications.ID_REMINDER)
             } finally {
                 pending.finish()

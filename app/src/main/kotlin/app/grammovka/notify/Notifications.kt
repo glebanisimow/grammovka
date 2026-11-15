@@ -94,12 +94,12 @@ object Notifications {
             .setContentIntent(open)
             .setAutoCancel(true)
             .addAction(0, "Закрыть", action(ReminderActionReceiver.YES, 2001))
-            .addAction(0, "Не полностью", action(ReminderActionReceiver.NO, 2002))
+            .addAction(0, "Не считать", action(ReminderActionReceiver.NO, 2002))
             .build()
         notify(context, ID_REMINDER, n)
     }
 
-    /** Sunday evening: the tap opens the review screen, where Claude writes the review (never in the background). */
+    /** The week's Sunday is closed: the tap opens the review screen, where Claude writes the review (never in the background). */
     fun weeklyReady(context: Context, monday: LocalDate, days: Int) {
         if (!allowed(context)) return
         val open = PendingIntent.getActivity(
@@ -110,7 +110,7 @@ object Notifications {
         val n = NotificationCompat.Builder(context, CHANNEL_WEEKLY)
             .setSmallIcon(R.drawable.ic_stat_grammovka)
             .setContentTitle("Разбор недели")
-            .setContentText("Дней с записями: $days. Нажмите, и Claude разберёт питание за неделю.")
+            .setContentText("Неделя закрыта, дней в счёт: $days. Нажмите, и Claude разберёт её.")
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()

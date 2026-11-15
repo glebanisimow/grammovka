@@ -26,7 +26,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.grammovka.data.settings.AppSettings
 import app.grammovka.data.settings.ReminderSettings
 import app.grammovka.data.settings.WeeklyReviewSettings
-import app.grammovka.notify.WeeklyReview
 import app.grammovka.di.AppContainer
 import app.grammovka.notify.Notifications
 import app.grammovka.notify.Reminder
@@ -65,7 +64,7 @@ fun ReminderSection(container: AppContainer) {
             })
         }
         Text(
-            "«Закрыть вчерашний день?» с кнопками «закрыть» и «не полностью». Спрашивает, только если вчерашний день с записями остался открытым.",
+            "«Закрыть вчерашний день?» с кнопками «закрыть» и «не считать». Спрашивает, только если вчерашний день с записями остался открытым.",
             style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
         )
         if (r.enabled) {
@@ -80,7 +79,7 @@ fun ReminderSection(container: AppContainer) {
     }
 }
 
-/** Weekly review: the Sunday-evening notification, on/off and time. The review itself opens from «Прогресс» too. */
+/** Weekly review: the notification when Sunday is closed, on/off. The review itself opens from «Прогресс» too. */
 @Composable
 fun WeeklySection(container: AppContainer) {
     val context = LocalContext.current
@@ -91,7 +90,6 @@ fun WeeklySection(container: AppContainer) {
     fun save(next: WeeklyReviewSettings) {
         scope.launch {
             container.settingsStore.setWeekly(next)
-            WeeklyReview.schedule(context, next)
         }
     }
     // Asked for the notification, so the switch stays on either way; a refusal is shown below it.
@@ -107,14 +105,10 @@ fun WeeklySection(container: AppContainer) {
             })
         }
         Text(
-            "В воскресенье вечером приходит уведомление; по нажатию Claude разбирает питание за неделю. Без уведомления разбор открывается на «Прогрессе».",
+            "Уведомление приходит, когда вы закрываете воскресенье: неделя закончена, и Claude разбирает её целиком. Без уведомления разбор открывается на «Прогрессе».",
             style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
         )
         if (w.enabled) {
-            val time = "%d:%02d".format(w.minuteOfDay / 60, w.minuteOfDay % 60)
-            TextButton(onClick = {
-                TimePickerDialog(context, { _, h, m -> save(w.copy(minuteOfDay = h * 60 + m)) }, w.minuteOfDay / 60, w.minuteOfDay % 60, true).show()
-            }) { Text("Воскресенье, $time", color = GTheme.extra.accentText) }
             if (!Notifications.allowed(context)) {
                 Text("Уведомления приложению не разрешены, поэтому напоминание не придёт.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 TextButton(onClick = ask) { Text("Разрешить уведомления", color = GTheme.extra.accentText) }

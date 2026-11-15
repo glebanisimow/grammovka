@@ -50,6 +50,8 @@ class WeekDigestTest {
         val empty = WeekDigest.day(input(6), emptyList(), sunday)
         assertEquals(DigestStatus.EMPTY, empty.status)
         assertNull(empty.balance)
+        // «Не считаем» without a single entry (a trip): still marked, so the review knows why the day is missing.
+        assertEquals(DigestStatus.INCOMPLETE, WeekDigest.day(input(6, incomplete = true), emptyList(), sunday).status)
     }
 
     @Test fun totalsUseCountedDaysOnly() {
