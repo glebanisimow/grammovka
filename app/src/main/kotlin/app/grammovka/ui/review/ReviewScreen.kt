@@ -170,7 +170,7 @@ private fun NewFoodBody(vm: ReviewViewModel, item: ReviewItem.NewFood) {
             Column(Modifier.weight(1f)) {
                 Text(listOf(f.name, f.brand).filter { it.isNotBlank() }.joinToString(", "), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "${f.kcal} ккал / 100 г · Б ${f.protein} · Ж ${f.fat} · У ${f.carbs}",
+                    "${f.kcal} ккал / 100 г · Б ${f.protein} · Ж ${f.fat} · У ${f.carbs}" + (if (f.fiber.isBlank()) " · Кл ?" else " · Кл ${f.fiber}"),
                     style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
                 )
             }

@@ -111,4 +111,32 @@ class MigrationTest {
             }
         }
     }
+
+    @Test
+    fun migrate5To6FillsFiberFromCatalog() {
+        helper.createDatabase(dbName, 5).apply {
+            execSQL(
+                "INSERT INTO food (id, name, aliases, searchText, kcal, protein, fat, carbs, fiber, basis, source, usageCount, archived, createdAt, updatedAt) " +
+                    "VALUES (1, 'Хлеб ржаной', '', 'хлеб ржаной', 220, 7, 1.5, 40, 8, 'AS_SOLD', 'LABEL', 1, 0, 0, 0)",
+            )
+            execSQL(
+                "INSERT INTO food (id, name, aliases, searchText, kcal, protein, fat, carbs, basis, source, usageCount, archived, createdAt, updatedAt) " +
+                    "VALUES (2, 'Йогурт', '', 'йогурт', 60, 4, 3, 4, 'AS_SOLD', 'LABEL', 1, 0, 0, 0)",
+            )
+            listOf("1, 'Хлеб ржаной', 50, 110, 3.5, 0.75, 20", "2, 'Йогурт', 200, 120, 8, 6, 8", "NULL, 'Суп', 300, 150, 5, 5, 20").forEach {
+                execSQL(
+                    "INSERT INTO log_entry (date, time, foodId, foodName, grams, kcal, protein, fat, carbs, inputMethod) " +
+                        "VALUES ('2026-11-16', '08:30', $it, 'TEXT')",
+                )
+            }
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 6, true, Migrations.M5_6).use { db ->
+            db.query("SELECT fiber FROM log_entry ORDER BY id").use {
+                it.moveToNext(); assertEquals(4.0, it.getDouble(0), 1e-9)
+                it.moveToNext(); assertEquals(true, it.isNull(0))
+                it.moveToNext(); assertEquals(true, it.isNull(0))
+            }
+        }
+    }
 }

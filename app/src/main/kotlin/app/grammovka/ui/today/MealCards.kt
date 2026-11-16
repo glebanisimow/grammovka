@@ -85,7 +85,9 @@ fun MealCard(
             Column(Modifier.weight(1f)) {
                 Text("${block.meal.title} · ${block.start.hm()}", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "Б ${Fmt.grams(block.items.sumOf { it.protein })} · Ж ${Fmt.grams(block.items.sumOf { it.fat })} · У ${Fmt.grams(block.items.sumOf { it.carbs })}",
+                    block.items.fold(app.grammovka.domain.model.Amount.ZERO) { s, e -> s + e.amount() }.let { a ->
+                        "Б ${Fmt.grams(a.protein)} · Ж ${Fmt.grams(a.fat)} · У ${Fmt.grams(a.carbs)} · Кл ${Fmt.fiber(a)}"
+                    },
                     style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
                 )
             }

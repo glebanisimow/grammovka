@@ -76,6 +76,8 @@ data class TodayUi(
     val body: app.grammovka.domain.activity.Body? = null,
     val sex: app.grammovka.domain.engine.Sex? = null,
     val ageYears: Int? = null,
+    /** Daily fiber floor in grams (the user's own or by age and sex); null without sex and birth year. */
+    val fiberTarget: Double? = null,
 )
 
 private fun LogEntryEntity.mealOrSnack(): Meal = meal ?: Meal.SNACK
@@ -180,7 +182,7 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
             openCards = open[d].orEmpty().filter { o -> entries.none { it.mealOrSnack() == o.meal && (o.meal != Meal.SNACK || !it.time.isBefore(o.at)) } },
             target = picked ?: auto,
             targetPicked = picked != null,
-            eaten = entries.fold(Amount.ZERO) { a, e -> a + Amount(e.kcal, e.protein, e.fat, e.carbs) },
+            eaten = entries.fold(Amount.ZERO) { a, e -> a + e.amount() },
             model = dayModel,
             profileComplete = settings.profile.complete,
             weightKg = w,
@@ -194,6 +196,7 @@ class TodayViewModel(private val c: AppContainer) : ViewModel() {
             body = body,
             sex = profile?.sex,
             ageYears = profile?.ageYears,
+            fiberTarget = settings.profile.fiberTarget(d),
             // Offered once, after the first day with entries: the question only makes sense then.
             offerReminder = !settings.reminder.offered && !settings.reminder.enabled && used.isNotEmpty(),
         )

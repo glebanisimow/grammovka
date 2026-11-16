@@ -156,7 +156,7 @@ class AiService(
             repeat(MAX_TOOL_ROUNDS) {
                 val body = buildJsonObject {
                     put("max_tokens", 4000)
-                    put("system", systemBlocks(Prompts.PROMPT_RESOLVE_V1))
+                    put("system", systemBlocks(Prompts.PROMPT_RESOLVE_V2))
                     put("tools", tools)
                     put("messages", JsonArray(messages))
                 }
@@ -453,7 +453,7 @@ class AiService(
         val body = buildJsonObject {
             put("model", model)
             put("max_tokens", 8000)
-            put("system", systemBlocks(Prompts.PROMPT_WEEKLY_V2))
+            put("system", systemBlocks(Prompts.PROMPT_WEEKLY_V3))
             putJsonArray("messages") { addJsonObject { put("role", "user"); put("content", digest) } }
             putJsonObject("output_config") { put("effort", "medium") }
         }

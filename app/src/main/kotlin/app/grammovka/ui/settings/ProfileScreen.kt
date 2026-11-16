@@ -35,6 +35,7 @@ import app.grammovka.di.AppContainer
 import app.grammovka.domain.engine.BudgetMode
 import app.grammovka.domain.engine.EngineConfig
 import app.grammovka.domain.engine.Sex
+import app.grammovka.domain.model.Fmt
 import app.grammovka.ui.common.NumberField
 import app.grammovka.ui.common.input
 import app.grammovka.ui.common.toDecimal
@@ -61,7 +62,9 @@ fun ProfileScreen(container: AppContainer, onBack: () -> Unit) {
     var rate by remember { mutableStateOf("0,5") }
     var protein by remember { mutableStateOf("1,8") }
     var mode by remember { mutableStateOf(BudgetMode.WEEKLY) }
-    fun signature() = listOf(sex?.name, birthYear, height, activity, rate, protein, mode.name).joinToString("|")
+    /** Blank = by age and sex. */
+    var fiber by remember { mutableStateOf("") }
+    fun signature() = listOf(sex?.name, birthYear, height, activity, rate, protein, mode.name, fiber).joinToString("|")
     var loadedSignature by remember { mutableStateOf<String?>(null) }
     var confirmLeave by remember { mutableStateOf(false) }
     val leave = { if (loadedSignature != null && signature() != loadedSignature) confirmLeave = true else onBack() }
@@ -82,6 +85,7 @@ fun ProfileScreen(container: AppContainer, onBack: () -> Unit) {
         rate = p.ratePercentPerWeek.input()
         protein = p.proteinPerKg.input()
         mode = p.budgetMode
+        fiber = p.fiberTargetG?.input().orEmpty()
         loadedSignature = signature()
         loaded = true
     }
@@ -94,7 +98,8 @@ fun ProfileScreen(container: AppContainer, onBack: () -> Unit) {
     val rateVal = rate.toDecimal()
     val rateOk = rateVal?.let { it in 0.0..2.0 } == true
     val proteinOk = protein.toDecimal()?.let { it in 0.5..3.5 } == true
-    val valid = yearOk && heightOk && activityOk && rateOk && proteinOk
+    val fiberOk = fiber.isBlank() || fiber.toDecimal()?.let { it in 5.0..80.0 } == true
+    val valid = yearOk && heightOk && activityOk && rateOk && proteinOk && fiberOk
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -140,6 +145,16 @@ fun ProfileScreen(container: AppContainer, onBack: () -> Unit) {
                 NumberField(rate, { rate = it }, "Темп снижения", Modifier.weight(1f), suffix = "% в нед.", isError = !rateOk)
                 NumberField(protein, { protein = it }, "Белок", Modifier.weight(1f), suffix = "г/кг", isError = !proteinOk)
             }
+            val autoFiber = ProfileSettings(sex = sex, birthYear = year).autoFiberTarget(LocalDate.now())
+            NumberField(fiber, { fiber = it }, "Клетчатка", Modifier.fillMaxWidth(), suffix = "г/день", isError = !fiberOk)
+            Text(
+                when {
+                    fiber.isNotBlank() -> "Своя цель." + (autoFiber?.let { " Норма для вашего возраста и пола — ${Fmt.kcal(it)} г; очистите поле, чтобы вернуть её." } ?: "")
+                    autoFiber != null -> "Пусто — норма для вашего возраста и пола: ${Fmt.kcal(autoFiber)} г в день (IOM: мужчины 38 г до 50 лет и 30 г после, женщины 25 и 21 г). Это минимум, а не предел."
+                    else -> "Пусто — норма по возрасту и полу, когда они заполнены."
+                },
+                style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+            )
             if (rateVal != null && rateVal > EngineConfig().maxSafeRatePercent) {
                 Text(
                     "Темп выше 1 % массы в неделю: будет предупреждение. Дефицит всё равно ограничен 25 % расхода, цель не ниже BMR.",
@@ -173,6 +188,7 @@ fun ProfileScreen(container: AppContainer, onBack: () -> Unit) {
                                 sex = sex, birthYear = year, heightCm = height.toDecimal(),
                                 activityFactor = activity.toDecimal()!!, ratePercentPerWeek = rate.toDecimal()!!,
                                 proteinPerKg = protein.toDecimal()!!, budgetMode = mode,
+                                fiberTargetG = fiber.takeIf { it.isNotBlank() }?.toDecimal(),
                             ),
                         )
                         onBack()

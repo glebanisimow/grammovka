@@ -65,6 +65,12 @@ data class WeekTotals(
     val daysOverTarget: Int,
     val daysProteinMet: Int,
     val avgProteinTarget: Double?,
+    /** Known fiber only; with [fiberUnknownEntries] > 0 it is a lower bound. */
+    val avgFiber: Double? = null,
+    val fiberUnknownEntries: Int = 0,
+    val fiberTarget: Double? = null,
+    /** Counted days whose known fiber reached [fiberTarget]. */
+    val daysFiberMet: Int = 0,
     val workoutKcal: Double,
     val weekdayAvgKcal: Double?,
     val weekendAvgKcal: Double?,
@@ -111,8 +117,8 @@ object WeekDigest {
         )
     }
 
-    /** [days] are the week's days in order; [trend] maps dates to the trend weight. */
-    fun totals(monday: LocalDate, days: List<DigestDay>, trend: Map<LocalDate, Double>): WeekTotals {
+    /** [days] are the week's days in order; [trend] maps dates to the trend weight; [fiberTarget] is the daily floor. */
+    fun totals(monday: LocalDate, days: List<DigestDay>, trend: Map<LocalDate, Double>, fiberTarget: Double? = null): WeekTotals {
         val counted = days.filter { it.status == DigestStatus.COUNTED }
         fun avg(f: (DigestDay) -> Double?): Double? = counted.mapNotNull(f).takeIf { it.isNotEmpty() }?.average()
         val balances = counted.mapNotNull { it.balance }
@@ -131,6 +137,10 @@ object WeekDigest {
             daysOverTarget = counted.count { d -> d.target != null && d.eaten.kcal - d.activity > d.target },
             daysProteinMet = counted.count { d -> d.proteinTarget != null && d.eaten.protein >= d.proteinTarget },
             avgProteinTarget = avg { it.proteinTarget },
+            avgFiber = avg { it.eaten.fiber },
+            fiberUnknownEntries = counted.sumOf { it.eaten.fiberUnknown },
+            fiberTarget = fiberTarget,
+            daysFiberMet = if (fiberTarget == null) 0 else counted.count { it.eaten.fiber >= fiberTarget },
             workoutKcal = days.sumOf { it.activity },
             weekdayAvgKcal = counted.filter { it.date.dayOfWeek !in weekend }.takeIf { it.isNotEmpty() }?.map { it.eaten.kcal }?.average(),
             weekendAvgKcal = counted.filter { it.date.dayOfWeek in weekend }.takeIf { it.isNotEmpty() }?.map { it.eaten.kcal }?.average(),

@@ -217,7 +217,7 @@ fun RecipeEditScreen(container: AppContainer, id: Long?, onBack: () -> Unit) {
             vm.preview()?.let { n ->
                 SectionLabel("На 100 г готового")
                 Text(
-                    "${Fmt.kcal(n.kcal)} ккал · Б ${Fmt.grams(n.protein)} · Ж ${Fmt.grams(n.fat)} · У ${Fmt.grams(n.carbs)}",
+                    "${Fmt.kcal(n.kcal)} ккал · Б ${Fmt.grams(n.protein)} · Ж ${Fmt.grams(n.fat)} · У ${Fmt.grams(n.carbs)}${Fmt.fiberPart(n.fiber, n.carbs)}",
                     style = MaterialTheme.typography.titleMedium,
                 )
                 ValidatorLine(n)

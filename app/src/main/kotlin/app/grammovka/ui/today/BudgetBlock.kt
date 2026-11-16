@@ -111,6 +111,7 @@ fun Budget(ui: TodayUi, onOpenProfile: () -> Unit, onWeight: () -> Unit, onExpla
                             trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                             drawStopIndicator = {},
                         )
+                        FiberBar(ui)
                         Text(
                             "Жиры ${Fmt.kcal(ui.eaten.fat)} · Углев. ${Fmt.kcal(ui.eaten.carbs)} г",
                             style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
@@ -126,6 +127,13 @@ fun Budget(ui: TodayUi, onOpenProfile: () -> Unit, onWeight: () -> Unit, onExpla
                     },
                     style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
                 )
+                if (ui.eaten.fiberUnknown > 0) {
+                    val n = ui.eaten.fiberUnknown
+                    Text(
+                        "Клетчатка: у $n ${entriesWord(n)} нет данных. Допишите её продуктам в каталоге (там они с «Кл ?»), записи дополнятся.",
+                        style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+                    )
+                }
                 Flags(m)
             }
         }
@@ -163,6 +171,38 @@ fun WeightRow(ui: TodayUi, onWeight: () -> Unit) {
         )
         trend?.let { Text("тренд ${Fmt.kg(it)}", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted) }
     }
+}
+
+/**
+ * Fiber against the daily floor (user request 2026-11-16). A floor, not a limit: the bar fills up to the target
+ * and turns green once it is reached. «≥» when some entries have no fiber value.
+ */
+@Composable
+private fun FiberBar(ui: TodayUi) {
+    val t = ui.fiberTarget
+    val a = ui.eaten
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Клетчатка", style = MaterialTheme.typography.bodySmall)
+        Text(
+            Fmt.fiber(a) + (t?.let { " / ${Fmt.kcal(it)}" } ?: "") + " г",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    if (t != null && t > 0) {
+        val reached = a.fiber >= t
+        LinearProgressIndicator(
+            progress = { (a.fiber / t).toFloat().coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxWidth().height(4.dp),
+            color = if (reached) GTheme.extra.success else MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            drawStopIndicator = {},
+        )
+    }
+}
+
+private fun entriesWord(n: Int): String = when {
+    n % 10 == 1 && n % 100 != 11 -> "записи"
+    else -> "записей"
 }
 
 @Composable

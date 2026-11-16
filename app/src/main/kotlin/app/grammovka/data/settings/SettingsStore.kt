@@ -32,8 +32,16 @@ data class ProfileSettings(
     val ratePercentPerWeek: Double = 0.5,
     val proteinPerKg: Double = 1.8,
     val budgetMode: BudgetMode = BudgetMode.WEEKLY,
+    /** The user's own daily fiber target; null = by age and sex ([FiberTarget]). */
+    val fiberTargetG: Double? = null,
 ) {
     val complete: Boolean get() = sex != null && birthYear != null && heightCm != null
+
+    /** Daily fiber target in grams: the user's own, or the age and sex norm; null until sex and birth year are known. */
+    fun fiberTarget(today: LocalDate): Double? = fiberTargetG ?: autoFiberTarget(today)
+
+    fun autoFiberTarget(today: LocalDate): Double? =
+        if (sex != null && birthYear != null) app.grammovka.domain.engine.FiberTarget.grams(sex, today.year - birthYear) else null
 
     fun toProfile(today: LocalDate): Profile? {
         if (!complete) return null
@@ -92,6 +100,7 @@ class SettingsStore(private val context: Context) {
         val rate = doublePreferencesKey("profile_rate_pct")
         val protein = doublePreferencesKey("profile_protein_per_kg")
         val budgetMode = stringPreferencesKey("profile_budget_mode")
+        val fiber = doublePreferencesKey("profile_fiber_target_g")
         val healthConnect = booleanPreferencesKey("health_connect")
         val reminderOn = booleanPreferencesKey("reminder_enabled")
         val reminderMinute = intPreferencesKey("reminder_minute")
@@ -125,6 +134,7 @@ class SettingsStore(private val context: Context) {
                 ratePercentPerWeek = p[K.rate] ?: dp.ratePercentPerWeek,
                 proteinPerKg = p[K.protein] ?: dp.proteinPerKg,
                 budgetMode = p[K.budgetMode]?.let { runCatching { BudgetMode.valueOf(it) }.getOrNull() } ?: dp.budgetMode,
+                fiberTargetG = p[K.fiber],
             ),
             models = AiPurpose.entries.associateWith { p[K.model(it)]?.takeIf(String::isNotBlank) ?: AiDefaults.model(it) },
         )
@@ -172,6 +182,7 @@ class SettingsStore(private val context: Context) {
             it[K.rate] = p.ratePercentPerWeek
             it[K.protein] = p.proteinPerKg
             it[K.budgetMode] = p.budgetMode.name
+            if (p.fiberTargetG != null) it[K.fiber] = p.fiberTargetG else it.remove(K.fiber)
         }
     }
 }

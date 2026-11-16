@@ -61,7 +61,7 @@ fun CatalogAddSheet(c: AddContext, onDismiss: () -> Unit, onEdit: (() -> Unit)?,
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(if (f.brand.isNullOrBlank()) f.name else "${f.name}, ${f.brand}", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "${Fmt.kcal(f.kcal)} ккал на 100 г · Б ${Fmt.grams(f.protein)} · Ж ${Fmt.grams(f.fat)} · У ${Fmt.grams(f.carbs)}",
+                        "${Fmt.kcal(f.kcal)} ккал на 100 г · Б ${Fmt.grams(f.protein)} · Ж ${Fmt.grams(f.fat)} · У ${Fmt.grams(f.carbs)}${Fmt.fiberPart(f.fiber, f.carbs)}",
                         style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
                     )
                 }

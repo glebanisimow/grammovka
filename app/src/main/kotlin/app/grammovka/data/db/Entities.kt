@@ -140,7 +140,11 @@ data class LogEntryEntity(
     val inputMethod: InputMethod,
     val note: String? = null,
     val meal: Meal? = null,
-)
+    /** Schema v6. Null: the source had no fiber value (not the same as zero). */
+    val fiber: Double? = null,
+) {
+    fun amount() = app.grammovka.domain.model.Nutrition.snapshot(kcal, protein, fat, carbs, fiber, grams)
+}
 
 @Entity(tableName = "day_status")
 data class DayStatusEntity(

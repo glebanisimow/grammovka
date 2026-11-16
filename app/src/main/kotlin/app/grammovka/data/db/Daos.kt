@@ -51,6 +51,13 @@ interface FoodDao {
     /** Portions and template lines cascade; log entries keep their snapshot with foodId = null. */
     @Query("DELETE FROM food WHERE id = :id") suspend fun delete(id: Long)
 
+    /**
+     * Fills fiber of past entries that had none, once the food gets a fiber value. Only unknown values are
+     * filled: a value that was already in the snapshot is never rewritten (invariant 4).
+     */
+    @Query("UPDATE log_entry SET fiber = :fiberPer100 * grams / 100.0 WHERE foodId = :id AND fiber IS NULL")
+    suspend fun fillEntryFiber(id: Long, fiberPer100: Double)
+
     /** Frequent and recent foods with the grams of their last entry (chips on Today). */
     @Query(
         """SELECT f.id AS foodId, f.name AS name, f.usageCount AS usageCount, f.lastUsedAt AS lastUsedAt,
@@ -75,7 +82,11 @@ interface FoodDao {
 
 data class UsedFoodRow(val foodId: Long, val name: String, val usageCount: Int, val lastUsedAt: Long?, val lastGrams: Double?)
 
-data class DayTotalRow(val date: LocalDate, val kcal: Double, val protein: Double, val fat: Double, val carbs: Double, val entries: Int)
+/** [fiber] sums the known values only; [fiberUnknown] counts entries without one (see Fiber.unknown). */
+data class DayTotalRow(
+    val date: LocalDate, val kcal: Double, val protein: Double, val fat: Double, val carbs: Double, val entries: Int,
+    val fiber: Double = 0.0, val fiberUnknown: Int = 0,
+)
 
 @Dao
 interface LogDao {
@@ -90,7 +101,9 @@ interface LogDao {
     suspend fun between(from: LocalDate, to: LocalDate): List<LogEntryEntity>
 
     @Query(
-        """SELECT date, SUM(kcal) AS kcal, SUM(protein) AS protein, SUM(fat) AS fat, SUM(carbs) AS carbs, COUNT(*) AS entries
+        """SELECT date, SUM(kcal) AS kcal, SUM(protein) AS protein, SUM(fat) AS fat, SUM(carbs) AS carbs, COUNT(*) AS entries,
+                  IFNULL(SUM(fiber), 0) AS fiber,
+                  SUM(CASE WHEN fiber IS NULL AND grams > 0 AND carbs * 100.0 / grams >= 1.0 THEN 1 ELSE 0 END) AS fiberUnknown
            FROM log_entry WHERE date BETWEEN :from AND :to GROUP BY date ORDER BY date""",
     )
     suspend fun totals(from: LocalDate, to: LocalDate): List<DayTotalRow>

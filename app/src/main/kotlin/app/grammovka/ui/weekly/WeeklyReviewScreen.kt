@@ -287,6 +287,15 @@ private fun Numbers(v: WeekView) {
             "Белок в среднем", "${Fmt.kcal(t.avgProtein!!)} г",
             t.avgProteinTarget?.let { "цель ${Fmt.kcal(it)} · выполнена в ${t.daysProteinMet} из ${t.countedDays} дн." },
         )
+        t.avgFiber?.let { f ->
+            Fact(
+                "Клетчатка в среднем", (if (t.fiberUnknownEntries > 0) "≥ " else "") + "${Fmt.kcal(f)} г",
+                listOfNotNull(
+                    t.fiberTarget?.let { "норма ${Fmt.kcal(it)} · набрана в ${t.daysFiberMet} из ${t.countedDays} дн." },
+                    t.fiberUnknownEntries.takeIf { it > 0 }?.let { "без данных о клетчатке: $it зап." },
+                ).joinToString(" · ").ifEmpty { null },
+            )
+        }
     }
     t.trendChange?.let { ch ->
         Fact(

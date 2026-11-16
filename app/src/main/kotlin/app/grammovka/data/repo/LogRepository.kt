@@ -55,6 +55,7 @@ class LogRepository(
                 LogEntryEntity(
                     date = date, time = time, foodId = it.foodId, foodName = it.foodName, grams = it.grams,
                     kcal = a.kcal, protein = a.protein, fat = a.fat, carbs = a.carbs, inputMethod = it.method, note = it.note, meal = it.meal,
+                    fiber = it.per100.fiber?.let { f -> f * it.grams / 100.0 },
                 )
             },
         )
@@ -99,7 +100,12 @@ class LogRepository(
     suspend fun updateGrams(entry: LogEntryEntity, grams: Double) {
         if (entry.grams <= 0) return
         val k = grams / entry.grams
-        logDao.update(entry.copy(grams = grams, kcal = entry.kcal * k, protein = entry.protein * k, fat = entry.fat * k, carbs = entry.carbs * k))
+        logDao.update(
+            entry.copy(
+                grams = grams, kcal = entry.kcal * k, protein = entry.protein * k, fat = entry.fat * k, carbs = entry.carbs * k,
+                fiber = entry.fiber?.let { it * k },
+            ),
+        )
     }
 
     suspend fun lastGrams(foodId: Long): Double? = logDao.lastGrams(foodId)

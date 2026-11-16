@@ -20,7 +20,7 @@ class Converters {
 }
 
 @Database(
-    version = 5,
+    version = 6,
     exportSchema = true,
     entities = [
         FoodEntity::class,
@@ -114,5 +114,20 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(M1_2, M2_3, M3_4, M4_5)
+    /**
+     * v6: fiber in the log entry snapshot. Entries of catalog foods that have a fiber value get it from the
+     * catalog (fiber was never snapshotted before, so the current catalog value is the best there is); the
+     * rest stay null = unknown.
+     */
+    val M5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `log_entry` ADD COLUMN `fiber` REAL")
+            db.execSQL(
+                "UPDATE `log_entry` SET `fiber` = (SELECT f.`fiber` * `log_entry`.`grams` / 100.0 FROM `food` f WHERE f.`id` = `log_entry`.`foodId`) " +
+                    "WHERE `foodId` IS NOT NULL",
+            )
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(M1_2, M2_3, M3_4, M4_5, M5_6)
 }

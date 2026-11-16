@@ -82,7 +82,7 @@ fun FoodEditScreen(container: AppContainer, id: Long?, barcode: String?, onBack:
             FoodFormFields(s)
             if (id != null) {
                 Text(
-                    "Правка продукта не меняет уже сделанные записи: в них хранятся свои цифры.",
+                    "Правка продукта не меняет уже сделанные записи: в них хранятся свои цифры. Исключение — клетчатка: если её в записях не было, она допишется.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

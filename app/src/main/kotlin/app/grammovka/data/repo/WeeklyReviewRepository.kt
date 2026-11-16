@@ -4,7 +4,6 @@ import app.grammovka.data.db.ActivityEntryEntity
 import app.grammovka.data.db.AppDatabase
 import app.grammovka.data.settings.ProfileSettings
 import app.grammovka.domain.log.DayState
-import app.grammovka.domain.model.Amount
 import app.grammovka.domain.model.Meal
 import app.grammovka.domain.review.DigestDay
 import app.grammovka.domain.review.DigestDayInput
@@ -72,7 +71,7 @@ class WeeklyReviewRepository(private val dir: File, db: AppDatabase) {
         val from = monday.minusWeeks(PREVIOUS_WEEKS.toLong())
         val to = monday.plusDays(6)
         val entries = logs.between(from, to).map {
-            DigestEntry(it.date, it.time, it.foodName, it.grams, Amount(it.kcal, it.protein, it.fat, it.carbs), it.meal)
+            DigestEntry(it.date, it.time, it.foodName, it.grams, it.amount(), it.meal)
         }.groupBy { it.date }
         val marks = statuses.between(from, to).associateBy { it.date }
         val trend = model?.snapshots?.mapValues { it.value.trendWeight }.orEmpty()
@@ -97,10 +96,11 @@ class WeeklyReviewRepository(private val dir: File, db: AppDatabase) {
             )
         }
 
+        val fiberTarget = profile.fiberTarget(minOf(today, to))
         val days = weekDays(monday)
-        val totals = WeekDigest.totals(monday, days, trend)
+        val totals = WeekDigest.totals(monday, days, trend, fiberTarget)
         val previous = (1..PREVIOUS_WEEKS).map { monday.minusWeeks(it.toLong()) }
-            .map { WeekDigest.totals(it, weekDays(it), trend) }
+            .map { WeekDigest.totals(it, weekDays(it), trend, fiberTarget) }
             .filter { it.countedDays > 0 }
         val top = WeekDigest.topFoods((0L..6L).flatMap { entries[monday.plusDays(it)].orEmpty() })
         val workouts = activities.between(monday, to)
@@ -115,6 +115,7 @@ class WeeklyReviewRepository(private val dir: File, db: AppDatabase) {
                 put("ratePercentPerWeek", profile.ratePercentPerWeek)
                 last?.let { put("targetLossKgPerWeek", r1(profile.ratePercentPerWeek / 100 * it.trendWeight)) }
                 last?.let { put("proteinTargetG", r0(it.proteinTarget)) }
+                fiberTarget?.let { put("fiberTargetG", r0(it)) }
             }
             if (last != null) {
                 putJsonObject("model") {
@@ -132,6 +133,8 @@ class WeeklyReviewRepository(private val dir: File, db: AppDatabase) {
                         notes[d.date]?.let { put("note", it) }
                         if (d.eaten.kcal > 0) {
                             put("kcal", r0(d.eaten.kcal)); put("protein", r0(d.eaten.protein)); put("fat", r0(d.eaten.fat)); put("carbs", r0(d.eaten.carbs))
+                            put("fiber", r0(d.eaten.fiber))
+                            if (d.eaten.fiberUnknown > 0) put("fiberUnknownEntries", d.eaten.fiberUnknown)
                             putJsonObject("meals") {
                                 Meal.entries.forEach { m -> d.mealKcal[m]?.let { put(if (m == Meal.SNACK) "snacks" else m.name.lowercase(), r0(it)) } }
                             }
@@ -193,6 +196,9 @@ class WeeklyReviewRepository(private val dir: File, db: AppDatabase) {
         t.avgProteinTarget?.let { put("proteinTarget", r0(it)) }
         t.avgFat?.let { put("avgFat", r0(it)) }
         t.avgCarbs?.let { put("avgCarbs", r0(it)) }
+        t.avgFiber?.let { put("avgFiber", r0(it)) }
+        if (t.fiberUnknownEntries > 0) put("fiberUnknownEntries", t.fiberUnknownEntries)
+        if (t.fiberTarget != null) put("daysFiberMet", t.daysFiberMet)
         put("daysOverTarget", t.daysOverTarget)
         put("daysProteinMet", t.daysProteinMet)
         t.weekdayAvgKcal?.let { put("weekdayAvgKcal", r0(it)) }

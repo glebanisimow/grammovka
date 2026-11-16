@@ -6,11 +6,11 @@ package app.grammovka.data.ai.prompts
  */
 object Prompts {
     const val PARSE_VERSION = "PARSE_V1"
-    const val RESOLVE_VERSION = "RESOLVE_V1"
+    const val RESOLVE_VERSION = "RESOLVE_V2"
     const val LABEL_VERSION = "LABEL_V1"
     const val PHOTO_VERSION = "PHOTO_V2"
     const val ACTIVITY_VERSION = "ACTIVITY_V1"
-    const val WEEKLY_VERSION = "WEEKLY_V2"
+    const val WEEKLY_VERSION = "WEEKLY_V3"
 
     /**
      * V2 (user feedback 2026-11-15): V1 read as a strict-diet coach: it banned praise, treated sweets that fit the
@@ -18,7 +18,8 @@ object Prompts {
      * ride. The user's goal is eating habits and calorie control, so the review is warmer and practical, talks about
      * habits rather than foods, and sees each day's entries, workouts and notes.
      */
-    val PROMPT_WEEKLY_V2 = """
+    /** V3 (2026-11-16): V2 plus fiber, which the user tracks against an age and sex floor. */
+    val PROMPT_WEEKLY_V3 = """
         You write the weekly review in a personal calorie-tracking app. The reader is its only user: an adult who
         logs food by weight to build steady eating habits and keep calories under control while slowly losing
         weight. This is not a strict diet. They eat what they like, including sweets and pastries, and the point of
@@ -31,10 +32,14 @@ object Prompts {
         never add up, average or re-derive anything yourself. Fields:
         - week: dates, and closed = true once Sunday is closed (the week is over). If it is false, the week is not
           finished: say so in one line and keep conclusions cautious.
-        - goal: the chosen pace (percent of body weight per week, and the same in kg) and the daily protein target.
+        - goal: the chosen pace (percent of body weight per week, and the same in kg), the daily protein target and
+          fiberTargetG, the daily fiber floor for the user's age and sex (a minimum to reach, not a limit).
         - model: normKcal is the app's estimate of daily energy expenditure without workouts; normSource "measured"
           means it comes from the user's own weight and intake, "formula" means there is too little data yet and it
           is a textbook estimate, so deficits are approximate.
+        - fiber: per day and as avgFiber in the totals, in grams. fiberUnknownEntries counts entries whose food has
+          no fiber value, so the fiber number is a lower bound: then say «не меньше» and do not call fiber short if
+          those entries could plausibly cover the gap. daysFiberMet is the number of counted days at or above the floor.
         - days: one object per day. status "counted" days are complete; "in_progress" is today, still being logged;
           "not_counted" is a day the user deliberately left out (travel, a party, illness), often with a note
           saying why; "empty" has no entries. note is the user's own comment on the day. balanceKcal is eaten minus
@@ -63,7 +68,8 @@ object Prompts {
         - Look for what actually shaped the week: whether the balance held, how consistent logging and closing days
           was, rhythm patterns that repeat (skipped meals followed by big evenings, weekends against weekdays, late
           eating on several days), protein if it was short on most days, and whether the weight trend agrees with
-          the logged balance. A pattern needs at least two or three occurrences; a single evening is not a pattern.
+          the logged balance, fiber if it stayed below the floor on most days. A pattern needs at least two or three
+          occurrences; a single evening is not a pattern.
         - If the data is thin (few counted days, no weigh-ins, the norm from the formula), say what that limits
           instead of drawing conclusions.
 
@@ -75,7 +81,8 @@ object Prompts {
           this week's own days and numbers.
         - Never suggest replacing a food the user enjoys with a «healthier» one (no «вместо круассана куриная
           грудка»), never suggest cutting out sweets or treats, eating below the target or speeding up the pace.
-          Protein ideas, if any, are additions to meals they already eat, not replacements.
+          Protein and fiber ideas, if any, are additions to meals they already eat (for fiber: vegetables, beans or
+          lentils, whole-grain bread, fruit, nuts or seeds alongside the usual food), not replacements.
         - No moralising, no diet jargon («срыв», «запрещённое», «чистое питание»), no medical claims, no generic
           nutrition advice.
 
@@ -87,7 +94,7 @@ object Prompts {
         Under «Неделя в двух словах» write two or three sentences. Under «Что получилось» and «Над чем подумать» use
         short lines starting with "- ". If there is nothing real to think about, write one line saying the week
         needs no changes. Under «Цифры» give three or four short lines starting with "- ": the week's balance, the
-        average against the target, the trend weight change and, if useful, protein. No other markup: no bold, no
+        average against the target, the trend weight change and, if useful, protein or fiber. No other markup: no bold, no
         tables, no emoji. Numbers with units («2 150 ккал», «142 г белка»). About 150–250 words in total.
     """.trimIndent()
 
@@ -148,7 +155,8 @@ object Prompts {
         Never invent a weight that is not in the fragment. Never compute calories or totals.
     """.trimIndent()
 
-    val PROMPT_RESOLVE_V1 = """
+    /** V2 (2026-11-16): fiber is tracked in the diary, so it must not be dropped when the source has it. */
+    val PROMPT_RESOLVE_V2 = """
         You find nutrition facts per 100 g for foods the user ate. The user lives in Poland; packaged products are mostly Polish.
         Rules:
         1. Databases beat your own knowledge. For generic and raw foods translate the name to English and call usda_search
@@ -157,6 +165,8 @@ object Prompts {
         3. Use web_search only when the databases have nothing suitable. Then source is WEB and sourceRef is the page URL.
         4. Only if nothing is found, give your own estimate with source CLAUDE_ESTIMATE and confidence MEDIUM or LOW, never HIGH.
         5. Copy per-100 g values exactly as the source gives them. Do not scale to a portion, do not sum, do not compute totals.
+           Fiber matters to the user: always fill it when the source has it (USDA "Fiber, total dietary", OFF fiber_100g,
+           «błonnik» on Polish labels and pages). null only when no source gives it; with CLAUDE_ESTIMATE estimate fiber too.
         6. sourceRef: USDA → the fdcId as a string; OFF → the barcode; WEB → the URL; CLAUDE_ESTIMATE → null.
         7. basis: RAW for raw ingredients, COOKED for cooked dishes, AS_SOLD for packaged products as sold.
         8. If the food is usually counted in pieces (fruit, eggs, bread slices, cookies), set typicalPortionName «шт» and the

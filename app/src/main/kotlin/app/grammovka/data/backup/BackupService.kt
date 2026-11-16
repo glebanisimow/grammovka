@@ -54,7 +54,7 @@ data class ActivityDto(
 data class EntryDto(
     val date: String, val time: String, val foodId: Long? = null, val foodName: String, val grams: Double,
     val kcal: Double, val protein: Double, val fat: Double, val carbs: Double, val inputMethod: String, val note: String? = null,
-    val meal: String? = null,
+    val meal: String? = null, val fiber: Double? = null,
 )
 
 @Serializable data class DayStatusDto(
@@ -70,6 +70,7 @@ data class SettingsDto(
     val sex: String? = null, val birthYear: Int? = null, val heightCm: Double? = null,
     val activityFactor: Double, val ratePercentPerWeek: Double, val proteinPerKg: Double, val budgetMode: String,
     val aiMonthlyLimitUsd: Double, val models: Map<String, String> = emptyMap(),
+    val fiberTargetG: Double? = null,
 )
 
 /** Full export. API keys are never included. */
@@ -119,7 +120,7 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
                 )
             },
             entries = db.logDao().between(FIRST_DAY, LAST_DAY).map {
-                EntryDto(it.date.toString(), it.time.toString(), it.foodId, it.foodName, it.grams, it.kcal, it.protein, it.fat, it.carbs, it.inputMethod.name, it.note, it.meal?.name)
+                EntryDto(it.date.toString(), it.time.toString(), it.foodId, it.foodName, it.grams, it.kcal, it.protein, it.fat, it.carbs, it.inputMethod.name, it.note, it.meal?.name, it.fiber)
             },
             dayStatus = db.dayStatusDao().all().map { DayStatusDto(it.date.toString(), it.incomplete, it.note, it.startedAt, it.closedAt) },
             weights = db.weightDao().all().map { WeightDto(it.date.toString(), it.kg, it.source.name) },
@@ -165,7 +166,7 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
                         date = LocalDate.parse(it.date), time = LocalTime.parse(it.time), foodId = it.foodId, foodName = it.foodName,
                         grams = it.grams, kcal = it.kcal, protein = it.protein, fat = it.fat, carbs = it.carbs,
                         inputMethod = InputMethod.valueOf(it.inputMethod), note = it.note,
-                        meal = it.meal?.let { m -> runCatching { Meal.valueOf(m) }.getOrNull() },
+                        meal = it.meal?.let { m -> runCatching { Meal.valueOf(m) }.getOrNull() }, fiber = it.fiber,
                     )
                 },
             )
@@ -206,7 +207,7 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
             ProfileSettings(
                 sex = st.sex?.let(Sex::valueOf), birthYear = st.birthYear, heightCm = st.heightCm,
                 activityFactor = st.activityFactor, ratePercentPerWeek = st.ratePercentPerWeek, proteinPerKg = st.proteinPerKg,
-                budgetMode = BudgetMode.valueOf(st.budgetMode),
+                budgetMode = BudgetMode.valueOf(st.budgetMode), fiberTargetG = st.fiberTargetG,
             ),
         )
         settings.setAiMonthlyLimit(st.aiMonthlyLimitUsd)
@@ -218,9 +219,9 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
     suspend fun exportEntriesCsv(out: OutputStream) {
         val rows = db.logDao().between(FIRST_DAY, LAST_DAY)
         out.bufferedWriter(Charsets.UTF_8).use { w ->
-            w.write("date,time,food,grams,kcal,protein,fat,carbs,input_method\n")
+            w.write("date,time,food,grams,kcal,protein,fat,carbs,fiber,input_method\n")
             rows.forEach { e ->
-                w.write(listOf(e.date, e.time, csv(e.foodName), n(e.grams), n(e.kcal), n(e.protein), n(e.fat), n(e.carbs), e.inputMethod).joinToString(","))
+                w.write(listOf(e.date, e.time, csv(e.foodName), n(e.grams), n(e.kcal), n(e.protein), n(e.fat), n(e.carbs), n(e.fiber), e.inputMethod).joinToString(","))
                 w.write("\n")
             }
         }
@@ -235,13 +236,14 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
         val workouts = db.activityDao().totals(FIRST_DAY, LAST_DAY).associate { it.date to it.kcal }
         val days = (totals.keys + weights.keys + snaps.keys + statuses.keys + workouts.keys).sorted()
         out.bufferedWriter(Charsets.UTF_8).use { w ->
-            w.write("date,kcal,protein,fat,carbs,entries,incomplete,weight_kg,trend_kg,tdee,target,workout_kcal\n")
+            // fiber sums the known values; fiber_unknown_entries counts entries without a fiber value.
+            w.write("date,kcal,protein,fat,carbs,fiber,fiber_unknown_entries,entries,incomplete,weight_kg,trend_kg,tdee,target,workout_kcal,closed\n")
             days.forEach { d ->
                 val t = totals[d]
                 val s = snaps[d]
                 w.write(
                     listOf(
-                        d, n(t?.kcal), n(t?.protein), n(t?.fat), n(t?.carbs), t?.entries ?: 0, statuses[d]?.incomplete == true,
+                        d, n(t?.kcal), n(t?.protein), n(t?.fat), n(t?.carbs), n(t?.fiber), t?.fiberUnknown ?: 0, t?.entries ?: 0, statuses[d]?.incomplete == true,
                         n(weights[d]?.kg), n(s?.trendWeight), n(s?.tdee), n(s?.target), n(workouts[d]), statuses[d]?.closedAt != null,
                     ).joinToString(","),
                 )
@@ -252,7 +254,7 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
 
     private fun AppSettings.toDto() = SettingsDto(
         profile.sex?.name, profile.birthYear, profile.heightCm, profile.activityFactor, profile.ratePercentPerWeek,
-        profile.proteinPerKg, profile.budgetMode.name, aiMonthlyLimitUsd, models.mapKeys { it.key.name },
+        profile.proteinPerKg, profile.budgetMode.name, aiMonthlyLimitUsd, models.mapKeys { it.key.name }, profile.fiberTargetG,
     )
 
     private fun n(v: Double?): String = v?.let { String.format(Locale.ROOT, "%.2f", it) } ?: ""

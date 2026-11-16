@@ -42,7 +42,7 @@ fun SettingsScreen(container: AppContainer, onOpenKeys: () -> Unit, onOpenProfil
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         ScreenTitle("Настройки")
-        SettingsRow(GIcons.Scale, "Профиль и цель", "Рост, возраст, активность, темп, белок, режим бюджета", onOpenProfile)
+        SettingsRow(GIcons.Scale, "Профиль и цель", "Рост, возраст, активность, темп, белок, клетчатка, режим бюджета", onOpenProfile)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         SettingsRow(GIcons.Key, "Ключи API и Claude", "Anthropic и USDA, модели, месячный лимит", onOpenKeys)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

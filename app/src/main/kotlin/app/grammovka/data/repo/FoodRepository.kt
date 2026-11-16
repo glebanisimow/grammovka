@@ -48,7 +48,10 @@ class FoodRepository(private val dao: FoodDao, private val clock: () -> Long = S
         return id
     }
 
-    /** Updates a food's catalog data. Log entries keep their own snapshot (invariant 4). */
+    /**
+     * Updates a food's catalog data. Log entries keep their own snapshot (invariant 4); the one exception is
+     * fiber that was unknown in them: a newly added fiber value fills those gaps (decision 2026-11-16).
+     */
     suspend fun update(id: Long, d: FoodDraft) {
         require(d.blockingProblems().isEmpty()) { d.blockingProblems().joinToString(" ") }
         val old = dao.byId(id) ?: return
@@ -57,6 +60,7 @@ class FoodRepository(private val dao: FoodDao, private val clock: () -> Long = S
                 .copy(usageCount = old.usageCount, lastUsedAt = old.lastUsedAt, archived = old.archived),
         )
         dao.replacePortions(id, d.portions.map { (n, g) -> PortionEntity(0, id, n, g) })
+        d.per100.fiber?.let { dao.fillEntryFiber(id, it) }
     }
 
     suspend fun setArchived(id: Long, archived: Boolean) = dao.setArchived(id, archived, clock())

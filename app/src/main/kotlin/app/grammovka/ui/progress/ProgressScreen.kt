@@ -204,6 +204,9 @@ fun ProgressScreen(container: AppContainer, onOpenWeekly: () -> Unit) {
             item { Line("Цель", "${Fmt.kcal(s.target)} ккал", if (s.bmrFloor) "поднята до BMR" else null) }
             item { Line("Бюджет сегодня", "${Fmt.kcal(day.allowance)} ккал") }
             item { Line("Белок", "${Fmt.kcal(s.proteinTarget)} г") }
+            settings.profile.fiberTarget(s.date)?.let { f ->
+                item { Line("Клетчатка", "не меньше ${Fmt.kcal(f)} г", if (settings.profile.fiberTargetG != null) "своя цель" else "норма для вашего возраста и пола") }
+            }
             item { Line("Полных дней в окне", "${s.includedDays} из ${cfg.windowDays}") }
             item { Line("Взвешиваний в окне", "${s.weighIns}") }
         }
