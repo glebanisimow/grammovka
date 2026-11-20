@@ -34,6 +34,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import app.grammovka.data.ai.AiProvider
+import app.grammovka.data.ai.QwenEndpoint
 import app.grammovka.data.keys.KeyCheck
 import app.grammovka.data.settings.Secret
 import app.grammovka.di.AppContainer
@@ -52,6 +54,7 @@ fun KeysScreen(container: AppContainer, onBack: () -> Unit) {
                     container.secretStore,
                     mapOf(
                         Secret.ANTHROPIC_KEY to container.anthropicKeyVerifier,
+                        Secret.QWEN_KEY to container.qwenKeyVerifier,
                         Secret.USDA_KEY to container.usdaKeyVerifier,
                     ),
                 )
@@ -59,17 +62,31 @@ fun KeysScreen(container: AppContainer, onBack: () -> Unit) {
         },
     )
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val settings by container.settingsStore.settings.collectAsStateWithLifecycle(app.grammovka.data.settings.AppSettings())
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(GIcons.Back, contentDescription = "Назад") }
-            Text("Ключи API", style = MaterialTheme.typography.headlineSmall)
+            Text("Ключи API и ИИ", style = MaterialTheme.typography.headlineSmall)
         }
-        KeyCard(
-            vm, Secret.ANTHROPIC_KEY, ui.getValue(Secret.ANTHROPIC_KEY),
-            title = "Anthropic (Claude)",
-            hint = "Нужен для разбора текста, поиска продуктов и фото этикеток. Без ключа ручной ввод и каталог работают.",
-        )
+        ProviderPicker(settings.aiProvider) { p -> scope.launch { container.settingsStore.setAiProvider(p) } }
+        when (settings.aiProvider) {
+            AiProvider.ANTHROPIC -> KeyCard(
+                vm, Secret.ANTHROPIC_KEY, ui.getValue(Secret.ANTHROPIC_KEY),
+                title = "Anthropic (Claude)",
+                hint = "Нужен для разбора текста, поиска продуктов и фото этикеток. Без ключа ручной ввод и каталог работают.",
+            )
+            AiProvider.QWEN -> {
+                QwenEndpointCard(settings.qwenBaseUrl) { url -> scope.launch { container.settingsStore.setQwenBaseUrl(url) } }
+                KeyCard(
+                    vm, Secret.QWEN_KEY, ui.getValue(Secret.QWEN_KEY),
+                    title = "Alibaba Cloud (Qwen)",
+                    hint = "Ключ из Model Studio, регион Singapore (вкладка API Key). Нужен для разбора текста, поиска продуктов и фото. " +
+                        "Без ключа ручной ввод и каталог работают.",
+                )
+            }
+        }
         KeyCard(
             vm, Secret.USDA_KEY, ui.getValue(Secret.USDA_KEY),
             title = "USDA FoodData Central",
@@ -165,7 +182,66 @@ internal fun describe(r: KeyCheck): Pair<Boolean, String> = when (r) {
 }
 
 
-/** Monthly AI limit, spend so far (from ai_call_log) and model per purpose. */
+/** Which service answers AI requests. Each keeps its own key and models; switching does not delete anything. */
+@Composable
+private fun ProviderPicker(current: AiProvider, onPick: (AiProvider) -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("ИИ", style = MaterialTheme.typography.titleMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AiProvider.entries.forEach { p ->
+                androidx.compose.material3.FilterChip(
+                    selected = current == p, onClick = { onPick(p) },
+                    label = { Text("${p.title} · ${p.company}") },
+                )
+            }
+        }
+        Text(
+            "Qwen — для стран, где Claude недоступен. Ключи и модели у каждого свои, переключение ничего не удаляет.",
+            style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+        )
+    }
+}
+
+/** Qwen workspace: a workspace key works only on its own endpoint. */
+@Composable
+private fun QwenEndpointCard(baseUrl: String, onSave: (String) -> Unit) {
+    var draft by androidx.compose.runtime.remember(baseUrl) {
+        androidx.compose.runtime.mutableStateOf(QwenEndpoint.workspaceOf(baseUrl) ?: if (baseUrl == QwenEndpoint.SHARED) "" else baseUrl)
+    }
+    val normalized = QwenEndpoint.normalize(draft)
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("Рабочее пространство Qwen", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Если ключ начинается с sk-ws-, укажите ID пространства (ws-…) или Base URL со страницы API Key. Для обычного ключа sk- оставьте пустым.",
+            style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = draft, onValueChange = { draft = it.trim() }, singleLine = true, modifier = Modifier.weight(1f),
+                label = { Text("ws-… или адрес") }, isError = normalized == null,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+            )
+            OutlinedButton(onClick = { normalized?.let(onSave) }, enabled = normalized != null && normalized != baseUrl, shape = MaterialTheme.shapes.small) {
+                Text("Сохранить")
+            }
+        }
+        Text(
+            if (normalized == null) "Это не похоже на ID пространства или адрес." else "Адрес: $baseUrl",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (normalized == null) MaterialTheme.colorScheme.error else GTheme.extra.textMuted,
+        )
+    }
+}
+
+/** Monthly AI limit, spend so far (from ai_call_log) and model per purpose of the active provider. */
 @Composable
 private fun ClaudeSettings(container: AppContainer) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -179,7 +255,7 @@ private fun ClaudeSettings(container: AppContainer) {
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Claude: расход и модели", style = MaterialTheme.typography.titleMedium)
+        Text("${settings.aiProvider.title}: расход и модели", style = MaterialTheme.typography.titleMedium)
         val over = spent >= settings.aiMonthlyLimitUsd
         Text(
             "В этом месяце: $" + String.format(java.util.Locale.ROOT, "%.2f", spent) + " из $" + settings.aiMonthlyLimitUsd.input() +
@@ -195,12 +271,17 @@ private fun ClaudeSettings(container: AppContainer) {
                 shape = MaterialTheme.shapes.small,
             ) { Text("Сохранить") }
         }
-        Text("Цены — в конфиге AiPricing, сверены с pricing на 2026-11-05.", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
+        Text(
+            "Цены — в конфиге AiPricing: Claude сверены 2026-11-05, Qwen 2026-11-20. Расход общий для обоих провайдеров.",
+            style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+        )
         listOf(
             app.grammovka.domain.model.AiPurpose.PARSE to "Разбор текста",
             app.grammovka.domain.model.AiPurpose.RESOLVE to "Поиск продукта",
             app.grammovka.domain.model.AiPurpose.LABEL to "Фото этикетки",
+            app.grammovka.domain.model.AiPurpose.MEAL_PHOTO to "Фото блюда",
             app.grammovka.domain.model.AiPurpose.ACTIVITY to "Тренировки",
+            app.grammovka.domain.model.AiPurpose.ANALYSIS to "Разбор недели",
         ).forEach { (p, label) ->
             var model by androidx.compose.runtime.remember(settings.models[p]) { androidx.compose.runtime.mutableStateOf(settings.models[p].orEmpty()) }
             OutlinedTextField(

@@ -27,7 +27,19 @@ import kotlin.math.pow
 
 enum class ClaudeErrorKind { NO_KEY, OFFLINE, INVALID_KEY, NO_PERMISSION, BILLING, RATE_LIMIT, OVERLOADED, SERVER, BAD_REQUEST, TIMEOUT, BUDGET }
 
-class ClaudeException(val kind: ClaudeErrorKind, val status: Int? = null, val apiMessage: String? = null) : IOException("${kind.name} $status")
+/**
+ * An AI request failed. The name is historical: Qwen errors use it too, with [provider] set, so the messages name
+ * the right service. [usage] is what the failed call still spent (a tool loop that broke halfway).
+ */
+class ClaudeException(
+    val kind: ClaudeErrorKind,
+    val status: Int? = null,
+    val apiMessage: String? = null,
+    val provider: AiProvider = AiProvider.ANTHROPIC,
+    val usage: Usage = Usage(),
+) : IOException("${kind.name} $status") {
+    fun withUsage(u: Usage) = ClaudeException(kind, status, apiMessage, provider, u)
+}
 
 /** A piece of a streamed answer: text as it is written, then the totals. */
 sealed interface StreamEvent {
@@ -217,16 +229,22 @@ class ClaudeClient(http: OkHttpClient) {
 }
 
 /** What happened and what to do (UX: no apologies, no "something went wrong"). */
-fun ClaudeException.userMessage(): String = when (kind) {
-    ClaudeErrorKind.NO_KEY -> "Нет ключа Anthropic. Добавьте его в «Настройки → Ключи API» или введите продукт вручную."
-    ClaudeErrorKind.OFFLINE -> "Нет связи с Claude. Проверьте интернет или введите продукт вручную."
-    ClaudeErrorKind.INVALID_KEY -> "Claude не принял ключ. Проверьте его в «Настройки → Ключи API»."
-    ClaudeErrorKind.NO_PERMISSION -> "У ключа нет доступа к модели. Проверьте права ключа или модель в настройках."
-    ClaudeErrorKind.BILLING -> "На счёте Anthropic нет средств. Пополните баланс в консоли Anthropic."
-    ClaudeErrorKind.RATE_LIMIT -> "Claude ограничил частоту запросов или исчерпан лимит расходов в консоли. Повторите через минуту."
-    ClaudeErrorKind.OVERLOADED -> "Claude перегружен. Повторите через минуту."
-    ClaudeErrorKind.SERVER -> "Сервис Claude ответил ошибкой ${status ?: ""}. Повторите позже."
-    ClaudeErrorKind.BAD_REQUEST -> "Claude отклонил запрос${apiMessage?.let { ": $it" } ?: "."} Проверьте модель в настройках."
-    ClaudeErrorKind.TIMEOUT -> "Claude не ответил вовремя. Повторите или введите продукт вручную."
-    ClaudeErrorKind.BUDGET -> "Месячный лимит на AI исчерпан. AI-функции выключены до конца месяца; лимит меняется в настройках."
+fun ClaudeException.userMessage(): String {
+    val ai = provider.title
+    return when (kind) {
+        ClaudeErrorKind.NO_KEY -> "Нет ключа ${provider.company} ($ai). Добавьте его в «Настройки → Ключи API и ИИ» или введите продукт вручную."
+        ClaudeErrorKind.OFFLINE -> "Нет связи с $ai. Проверьте интернет или введите продукт вручную."
+        ClaudeErrorKind.INVALID_KEY -> "$ai не принял ключ. Проверьте его в «Настройки → Ключи API и ИИ»."
+        ClaudeErrorKind.NO_PERMISSION -> when (provider) {
+            AiProvider.QWEN -> "У ключа Qwen нет доступа к модели. Проверьте адрес рабочего пространства и модель в «Настройки → Ключи API и ИИ»."
+            else -> "У ключа нет доступа к модели. Проверьте права ключа или модель в настройках."
+        }
+        ClaudeErrorKind.BILLING -> "На счёте ${provider.company} нет средств или есть долг. Пополните баланс в консоли ${provider.company}."
+        ClaudeErrorKind.RATE_LIMIT -> "$ai ограничил частоту запросов или исчерпан лимит расходов в консоли. Повторите через минуту."
+        ClaudeErrorKind.OVERLOADED -> "$ai перегружен. Повторите через минуту."
+        ClaudeErrorKind.SERVER -> "Сервис $ai ответил ошибкой ${status ?: ""}. Повторите позже."
+        ClaudeErrorKind.BAD_REQUEST -> "$ai отклонил запрос${apiMessage?.let { ": $it" } ?: "."} Проверьте модель в настройках."
+        ClaudeErrorKind.TIMEOUT -> "$ai не ответил вовремя. Повторите или введите продукт вручную."
+        ClaudeErrorKind.BUDGET -> "Месячный лимит на ИИ исчерпан. ИИ-функции выключены до конца месяца; лимит меняется в настройках."
+    }
 }

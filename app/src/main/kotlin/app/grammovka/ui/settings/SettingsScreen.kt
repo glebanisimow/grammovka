@@ -44,7 +44,7 @@ fun SettingsScreen(container: AppContainer, onOpenKeys: () -> Unit, onOpenProfil
         ScreenTitle("Настройки")
         SettingsRow(GIcons.Scale, "Профиль и цель", "Рост, возраст, активность, темп, белок, клетчатка, режим бюджета", onOpenProfile)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        SettingsRow(GIcons.Key, "Ключи API и Claude", "Anthropic и USDA, модели, месячный лимит", onOpenKeys)
+        SettingsRow(GIcons.Key, "Ключи API и ИИ", "Claude или Qwen, USDA, модели, месячный лимит", onOpenKeys)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

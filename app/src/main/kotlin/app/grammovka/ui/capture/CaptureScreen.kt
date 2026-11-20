@@ -159,7 +159,7 @@ fun CaptureScreen(
     fun estimate() {
         val photos = shots.toList()
         if (photos.isEmpty()) return
-        state = CaptureState.Busy("Claude смотрит фото и ищет продукт в базах…")
+        state = CaptureState.Busy("${app.grammovka.data.ai.ActiveAi.title} смотрит фото и ищет продукт в базах…")
         scope.launch {
             try {
                 val r = container.aiService.photo(photos, hint, pendingBarcode)
@@ -183,7 +183,7 @@ fun CaptureScreen(
 
     fun labelFromJpeg(jpeg: ByteArray) {
         lastLabel = jpeg
-        state = CaptureState.Busy("Claude читает этикетку…")
+        state = CaptureState.Busy("${app.grammovka.data.ai.ActiveAi.title} читает этикетку…")
         scope.launch {
             try {
                 when (val r = container.aiService.label(jpeg, pendingBarcode)) {

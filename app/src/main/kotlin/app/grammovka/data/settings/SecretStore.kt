@@ -23,6 +23,7 @@ private val Context.secretsDataStore: DataStore<Preferences> by preferencesDataS
 
 enum class Secret(val prefKey: String) {
     ANTHROPIC_KEY("anthropic_key"),
+    QWEN_KEY("qwen_key"),
     USDA_KEY("usda_key"),
 }
 

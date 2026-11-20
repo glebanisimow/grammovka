@@ -34,7 +34,7 @@ fun FoodSource.label(): String = when (this) {
     FoodSource.OFF -> "OFF"
     FoodSource.USDA -> "USDA"
     FoodSource.WEB -> "веб"
-    FoodSource.CLAUDE_ESTIMATE -> "≈ оценка Claude"
+    FoodSource.CLAUDE_ESTIMATE -> "≈ оценка ИИ"
     FoodSource.MANUAL -> "вручную"
     FoodSource.RECIPE -> "рецепт"
 }

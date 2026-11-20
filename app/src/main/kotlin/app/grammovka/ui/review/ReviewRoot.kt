@@ -37,7 +37,7 @@ fun ReviewRoot(container: AppContainer, onBack: () -> Unit) {
         vm, onBack,
         extraActions = { item ->
             if (vm.hasKey) {
-                AssistChip(onClick = { vm.resolveWithAi(item) }, enabled = !vm.aiRunning, label = { Text("Найти через Claude") })
+                AssistChip(onClick = { vm.resolveWithAi(item) }, enabled = !vm.aiRunning, label = { Text("Найти через ${app.grammovka.data.ai.ActiveAi.title}") })
                 AssistChip(onClick = { vm.defer(item) }, label = { Text("Отложить до сети") })
             }
         },
@@ -73,7 +73,7 @@ private fun AiStatus(vm: ReviewViewModel) {
     }
     if (vm.deferred > 0) {
         Text(
-            "Отложено: ${vm.deferred}. Когда появится сеть, придёт уведомление, и Claude разберёт отложенное на этом же экране.",
+            "Отложено: ${vm.deferred}. Когда появится сеть, придёт уведомление, и ${app.grammovka.data.ai.ActiveAi.title} разберёт отложенное на этом же экране.",
             Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
         )
     }

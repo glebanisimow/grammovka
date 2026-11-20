@@ -71,6 +71,9 @@ data class SettingsDto(
     val activityFactor: Double, val ratePercentPerWeek: Double, val proteinPerKg: Double, val budgetMode: String,
     val aiMonthlyLimitUsd: Double, val models: Map<String, String> = emptyMap(),
     val fiberTargetG: Double? = null,
+    /** Since 2026-11-20; [models] belong to this provider. Older backups have neither: Anthropic. */
+    val aiProvider: String? = null,
+    val qwenBaseUrl: String? = null,
 )
 
 /** Full export. API keys are never included. */
@@ -211,6 +214,8 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
             ),
         )
         settings.setAiMonthlyLimit(st.aiMonthlyLimitUsd)
+        st.qwenBaseUrl?.let { settings.setQwenBaseUrl(it) }
+        settings.setAiProvider(st.aiProvider?.let { runCatching { app.grammovka.data.ai.AiProvider.valueOf(it) }.getOrNull() } ?: app.grammovka.data.ai.AiProvider.ANTHROPIC)
         st.models.forEach { (k, v) -> runCatching { AiPurpose.valueOf(k) }.getOrNull()?.let { settings.setModel(it, v) } }
         return ImportSummary(dto.foods.size, dto.entries.size, dto.weights.size)
     }
@@ -255,6 +260,7 @@ class BackupService(private val db: AppDatabase, private val settings: SettingsS
     private fun AppSettings.toDto() = SettingsDto(
         profile.sex?.name, profile.birthYear, profile.heightCm, profile.activityFactor, profile.ratePercentPerWeek,
         profile.proteinPerKg, profile.budgetMode.name, aiMonthlyLimitUsd, models.mapKeys { it.key.name }, profile.fiberTargetG,
+        aiProvider.name, qwenBaseUrl,
     )
 
     private fun n(v: Double?): String = v?.let { String.format(Locale.ROOT, "%.2f", it) } ?: ""

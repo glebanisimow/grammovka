@@ -105,7 +105,7 @@ fun WeeklySection(container: AppContainer) {
             })
         }
         Text(
-            "Уведомление приходит, когда вы закрываете воскресенье: неделя закончена, и Claude разбирает её целиком. Без уведомления разбор открывается на «Прогрессе».",
+            "Уведомление приходит, когда вы закрываете воскресенье: неделя закончена, и ${app.grammovka.data.ai.ActiveAi.title} разбирает её целиком. Без уведомления разбор открывается на «Прогрессе».",
             style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
         )
         if (w.enabled) {

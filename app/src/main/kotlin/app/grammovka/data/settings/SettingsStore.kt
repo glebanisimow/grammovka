@@ -50,14 +50,23 @@ data class ProfileSettings(
 }
 
 /**
- * Models per AI purpose (spec: AiConfig). IDs checked against
- * https://platform.claude.com/docs/en/about-claude/models/overview on 2026-11-05.
+ * Models per AI purpose (spec: AiConfig), per provider. Claude IDs checked against
+ * https://platform.claude.com/docs/en/about-claude/models/overview on 2026-11-05. Qwen IDs checked on a real key
+ * 2026-11-20 (Singapore): qwen-plus kept every fragment in PARSE where qwen3.7-flash dropped one; qwen3.6-plus takes
+ * images, tools and web search and needs no thinking mode for JSON (https://www.alibabacloud.com/help/en/model-studio/models).
  */
 object AiDefaults {
     const val FAST = "claude-haiku-5-5"
     const val STRONG = "claude-sonnet-5-5"
+    const val QWEN_FAST = "qwen-plus"
+    const val QWEN_STRONG = "qwen3.6-plus"
 
-    fun model(p: AiPurpose): String = if (p == AiPurpose.PARSE) FAST else STRONG
+    fun model(p: AiPurpose): String = model(app.grammovka.data.ai.AiProvider.ANTHROPIC, p)
+
+    fun model(provider: app.grammovka.data.ai.AiProvider, p: AiPurpose): String = when (provider) {
+        app.grammovka.data.ai.AiProvider.ANTHROPIC -> if (p == AiPurpose.PARSE) FAST else STRONG
+        app.grammovka.data.ai.AiProvider.QWEN -> if (p == AiPurpose.PARSE) QWEN_FAST else QWEN_STRONG
+    }
 }
 
 /** Morning question «закрыть вчерашний день?». Off until the user turns it on (notification permission is asked then). */
@@ -86,7 +95,11 @@ data class AppSettings(
     val healthConnect: Boolean = false,
     val aiMonthlyLimitUsd: Double = 5.0,
     val profile: ProfileSettings = ProfileSettings(),
-    val models: Map<AiPurpose, String> = AiPurpose.entries.associateWith(AiDefaults::model),
+    /** Who answers AI requests; [models] are the active provider's. */
+    val aiProvider: app.grammovka.data.ai.AiProvider = app.grammovka.data.ai.AiProvider.ANTHROPIC,
+    /** Qwen base URL (already normalized, see [app.grammovka.data.ai.QwenEndpoint]). */
+    val qwenBaseUrl: String = app.grammovka.data.ai.QwenEndpoint.SHARED,
+    val models: Map<AiPurpose, String> = AiPurpose.entries.associateWith { AiDefaults.model(aiProvider, it) },
 )
 
 class SettingsStore(private val context: Context) {
@@ -107,11 +120,17 @@ class SettingsStore(private val context: Context) {
         val reminderOffered = booleanPreferencesKey("reminder_offered")
         val weeklyOn = booleanPreferencesKey("weekly_review_enabled")
         val weeklyNotified = stringPreferencesKey("weekly_review_notified_week")
-        fun model(p: AiPurpose) = stringPreferencesKey("ai_model_${p.name}")
+        val provider = stringPreferencesKey("ai_provider")
+        val qwenBase = stringPreferencesKey("qwen_base_url")
+
+        /** Claude keys keep their pre-Qwen names, so existing choices survive the update. */
+        fun model(provider: app.grammovka.data.ai.AiProvider, p: AiPurpose) =
+            stringPreferencesKey(if (provider == app.grammovka.data.ai.AiProvider.ANTHROPIC) "ai_model_${p.name}" else "ai_model_${provider.name}_${p.name}")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { p ->
         val d = AppSettings()
+        val provider = p[K.provider]?.let { runCatching { app.grammovka.data.ai.AiProvider.valueOf(it) }.getOrNull() } ?: d.aiProvider
         val dp = d.profile
         AppSettings(
             themeMode = p[K.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: d.themeMode,
@@ -136,7 +155,9 @@ class SettingsStore(private val context: Context) {
                 budgetMode = p[K.budgetMode]?.let { runCatching { BudgetMode.valueOf(it) }.getOrNull() } ?: dp.budgetMode,
                 fiberTargetG = p[K.fiber],
             ),
-            models = AiPurpose.entries.associateWith { p[K.model(it)]?.takeIf(String::isNotBlank) ?: AiDefaults.model(it) },
+            aiProvider = provider,
+            qwenBaseUrl = p[K.qwenBase] ?: d.qwenBaseUrl,
+            models = AiPurpose.entries.associateWith { p[K.model(provider, it)]?.takeIf(String::isNotBlank) ?: AiDefaults.model(provider, it) },
         )
     }
 
@@ -169,8 +190,21 @@ class SettingsStore(private val context: Context) {
         context.settingsDataStore.edit { it[K.aiLimit] = usd }
     }
 
+    /** Sets the model for the active provider. */
     suspend fun setModel(purpose: AiPurpose, model: String) {
-        context.settingsDataStore.edit { it[K.model(purpose)] = model.trim() }
+        context.settingsDataStore.edit {
+            val provider = it[K.provider]?.let { v -> runCatching { app.grammovka.data.ai.AiProvider.valueOf(v) }.getOrNull() }
+                ?: app.grammovka.data.ai.AiProvider.ANTHROPIC
+            it[K.model(provider, purpose)] = model.trim()
+        }
+    }
+
+    suspend fun setAiProvider(provider: app.grammovka.data.ai.AiProvider) {
+        context.settingsDataStore.edit { it[K.provider] = provider.name }
+    }
+
+    suspend fun setQwenBaseUrl(url: String) {
+        context.settingsDataStore.edit { it[K.qwenBase] = url }
     }
 
     suspend fun setProfile(p: ProfileSettings) {

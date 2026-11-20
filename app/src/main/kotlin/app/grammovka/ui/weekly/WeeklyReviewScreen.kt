@@ -174,9 +174,9 @@ class WeeklyReviewViewModel(private val c: AppContainer, initial: LocalDate?, au
 
     /** The shared messages talk about entering a food by hand; here the way out is different. */
     private fun message(e: ClaudeException): String = when (e.kind) {
-        ClaudeErrorKind.NO_KEY -> "Нет ключа Anthropic. Добавьте его в «Настройки → Ключи API»."
-        ClaudeErrorKind.OFFLINE -> "Нет связи с Claude. Проверьте интернет и запустите разбор ещё раз."
-        ClaudeErrorKind.TIMEOUT -> "Claude не ответил вовремя. Запустите разбор ещё раз."
+        ClaudeErrorKind.NO_KEY -> "Нет ключа ${e.provider.company}. Добавьте его в «Настройки → Ключи API и ИИ»."
+        ClaudeErrorKind.OFFLINE -> "Нет связи с ${e.provider.title}. Проверьте интернет и запустите разбор ещё раз."
+        ClaudeErrorKind.TIMEOUT -> "${e.provider.title} не ответил вовремя. Запустите разбор ещё раз."
         else -> e.userMessage()
     }
 }
@@ -206,7 +206,7 @@ fun WeeklyReviewScreen(container: AppContainer, week: LocalDate?, auto: Boolean,
                 return@Column
             }
             Numbers(v)
-            SectionLabel("Разбор Claude", Modifier.padding(top = 8.dp))
+            SectionLabel("Разбор ${app.grammovka.data.ai.ActiveAi.title}", Modifier.padding(top = 8.dp))
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (vm.text.isNotBlank()) ReportText(vm.text)
                 vm.error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
@@ -215,14 +215,14 @@ fun WeeklyReviewScreen(container: AppContainer, week: LocalDate?, auto: Boolean,
                         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            if (vm.text.isBlank()) "Claude читает неделю…" else "Claude пишет…",
+                            if (vm.text.isBlank()) "${app.grammovka.data.ai.ActiveAi.title} читает неделю…" else "${app.grammovka.data.ai.ActiveAi.title} пишет…",
                             Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
                         )
                         OutlinedButton(onClick = vm::stop, shape = MaterialTheme.shapes.small) { Text("Остановить") }
                     }
                     !vm.hasKey -> {
                         Text(
-                            "Разбор пишет Claude, для него нужен ключ Anthropic. Цифры недели выше считаются и без ключа.",
+                            "Разбор пишет ${app.grammovka.data.ai.ActiveAi.title}, для него нужен ключ ${app.grammovka.data.ai.ActiveAi.provider.value.company}. Цифры недели выше считаются и без ключа.",
                             style = MaterialTheme.typography.bodyMedium, color = GTheme.extra.textMuted,
                         )
                         OutlinedButton(onClick = onOpenKeys, shape = MaterialTheme.shapes.small) { Text("Открыть ключи API") }
@@ -257,7 +257,7 @@ fun WeeklyReviewScreen(container: AppContainer, week: LocalDate?, auto: Boolean,
                     }
                 }
                 Text(
-                    "Claude получает цифры недели: итоги и записи по дням, заметки к дням, тренировки и три прошлые недели. Дни «не считаем» он не разбирает. Все суммы считает приложение.",
+                    "${app.grammovka.data.ai.ActiveAi.title} получает цифры недели: итоги и записи по дням, заметки к дням, тренировки и три прошлые недели. Дни «не считаем» он не разбирает. Все суммы считает приложение.",
                     style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
                 )
             }

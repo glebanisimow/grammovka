@@ -52,7 +52,7 @@ fun PhotoPanel(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            "Снимите сам продукт, разрез и упаковку: до $MAX_PHOTOS фото. Claude определит, что это, а цифры возьмёт из баз.",
+            "Снимите сам продукт, разрез и упаковку: до $MAX_PHOTOS фото. ${app.grammovka.data.ai.ActiveAi.title} определит, что это, а цифры возьмёт из баз.",
             style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
         )
         if (shots.isNotEmpty()) {

@@ -59,17 +59,13 @@ sealed interface LabelResult {
 }
 
 /**
- * PARSE, RESOLVE and LABEL over [ClaudeClient]. Request shapes checked on 2026-11-05 against:
- * structured outputs https://platform.claude.com/docs/en/build-with-claude/structured-outputs (output_config.format),
- * strict tools https://platform.claude.com/docs/en/agents-and-tools/tool-use/strict-tool-use,
- * web search https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool (web_search_20250305),
- * tool results https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls,
- * caching https://platform.claude.com/docs/en/build-with-claude/prompt-caching,
- * images https://platform.claude.com/docs/en/build-with-claude/vision.
+ * PARSE, RESOLVE, LABEL, MEAL_PHOTO, ACTIVITY and ANALYSIS over the active provider's [AiTransport]
+ * (Anthropic or Qwen, «Настройки → Ключи API и ИИ»). Prompts, schemas, keys, the monthly limit, cost records and all
+ * mapping to drafts live here, so both providers keep the same invariants.
  * Invariant 2: everything returned here goes to the confirm screen; nothing is saved from here.
  */
 class AiService(
-    private val client: ClaudeClient,
+    private val transports: Map<AiProvider, AiTransport>,
     private val secrets: SecretStore,
     private val settings: SettingsStore,
     private val costs: AiCostTracker,
@@ -78,7 +74,9 @@ class AiService(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun hasKey(): Boolean = secrets.get(Secret.ANTHROPIC_KEY) != null
+    suspend fun hasKey(): Boolean = secrets.get(keyOf(provider())) != null
+
+    suspend fun provider(): AiProvider = settings.current().aiProvider
 
     // ------------------------------------------------------------------ PARSE
 
@@ -108,14 +106,8 @@ class AiService(
                 ),
             ),
         )
-        val body = buildJsonObject {
-            put("max_tokens", 2000)
-            put("system", systemBlocks(Prompts.PROMPT_PARSE_V1))
-            putJsonArray("messages") { addJsonObject { put("role", "user"); put("content", input.toString()) } }
-            putJsonObject("output_config") { putJsonObject("format") { put("type", "json_schema"); put("schema", schema) } }
-        }
-        val resp = call(AiPurpose.PARSE, Prompts.PARSE_VERSION, body, PARSE_TIMEOUT_MS)
-        val out = json.parseToJsonElement(resp.text).jsonObject["items"]!!.jsonArray
+        val o = structured(AiPurpose.PARSE, Prompts.PARSE_VERSION, Prompts.PROMPT_PARSE_V1, listOf(Part.Text(input.toString())), schema, 2000, PARSE_TIMEOUT_MS)
+        val out = o["items"]!!.jsonArray
         return out.map { e ->
             val o = e.jsonObject
             ParsedFragment(
@@ -127,78 +119,40 @@ class AiService(
 
     // ------------------------------------------------------------------ RESOLVE
 
-    /** Tool loop: client tools hit USDA/OFF through our cached clients; web search runs server-side. */
+    /** Tool loop: client tools hit USDA/OFF through our cached clients; web search is the provider's. */
     suspend fun resolve(requests: List<String>): List<Proposal> {
-        val tools = buildJsonArray {
-            add(tool("usda_search", "Search USDA FoodData Central. Query must be in English.",
-                obj("query_en" to str(), "data_types" to arrOfEnum("Foundation", "SR Legacy", "Survey (FNDDS)"))))
-            add(tool("usda_food", "Get one USDA food by fdcId with per-100 g nutrients.", obj("fdc_id" to JsonObject(mapOf("type" to JsonPrimitive("integer"))))))
-            add(tool("off_search", "Full-text search in Open Food Facts, filtered to products sold in Poland.", obj("query" to str(), "country" to str())))
-            add(tool("off_product", "Get one Open Food Facts product by barcode.", obj("barcode" to str())))
-            add(buildJsonObject {
-                put("type", "web_search_20250305"); put("name", "web_search"); put("max_uses", 3)
-                putJsonObject("user_location") { put("type", "approximate"); put("country", "PL"); put("timezone", "Europe/Warsaw") }
-            })
-            add(tool("propose_foods", "Final answer: one proposal per requested food.", proposeSchema(), cache = true))
-        }
-        val messages = mutableListOf<JsonElement>(
-            buildJsonObject {
-                put("role", "user")
-                put("content", "Find nutrition per 100 g for: " + requests.joinToString("; ") { "\"$it\"" })
-            },
+        val tools = listOf(
+            ToolDef("usda_search", "Search USDA FoodData Central. Query must be in English.",
+                obj("query_en" to str(), "data_types" to arrOfEnum("Foundation", "SR Legacy", "Survey (FNDDS)"))),
+            ToolDef("usda_food", "Get one USDA food by fdcId with per-100 g nutrients.", obj("fdc_id" to JsonObject(mapOf("type" to JsonPrimitive("integer"))))),
+            ToolDef("off_search", "Full-text search in Open Food Facts, filtered to products sold in Poland.", obj("query" to str(), "country" to str())),
+            ToolDef("off_product", "Get one Open Food Facts product by barcode.", obj("barcode" to str())),
         )
+        val final = ToolDef("propose_foods", "Final answer: one proposal per requested food.", proposeSchema())
         val seenUsda = mutableMapOf<Long, Nutrients>()
         val seenOff = mutableMapOf<String, Nutrients>()
         val offBrands = mutableMapOf<String, String>()
-        var total = Usage()
-        val model = settings.current().models.getValue(AiPurpose.RESOLVE)
-        try {
-            repeat(MAX_TOOL_ROUNDS) {
-                val body = buildJsonObject {
-                    put("max_tokens", 4000)
-                    put("system", systemBlocks(Prompts.PROMPT_RESOLVE_V2))
-                    put("tools", tools)
-                    put("messages", JsonArray(messages))
-                }
-                val resp = call(AiPurpose.RESOLVE, Prompts.RESOLVE_VERSION, body, OTHER_TIMEOUT_MS, record = false)
-                total += resp.usage
-                messages += buildJsonObject { put("role", "assistant"); put("content", resp.content) }
-                val toolUses = resp.content.map { it.jsonObject }.filter { it.s("type") == "tool_use" }
-                toolUses.firstOrNull { it.s("name") == "propose_foods" }?.let { final ->
-                    costs.record(AiPurpose.RESOLVE, model, Prompts.RESOLVE_VERSION, total, ok = true)
-                    return proposals(final["input"]!!.jsonObject, seenUsda, seenOff, offBrands)
-                }
-                when (resp.stopReason) {
-                    "pause_turn" -> return@repeat // send the paused turn back unchanged
-                    "tool_use" -> {
-                        val results = toolUses.map { tu -> toolResult(tu, seenUsda, seenOff, offBrands) }
-                        messages += buildJsonObject { put("role", "user"); put("content", JsonArray(results)) }
-                    }
-                    else -> {
-                        messages += buildJsonObject {
-                            put("role", "user")
-                            put("content", "Call propose_foods now with what you have; use CLAUDE_ESTIMATE where nothing was found.")
-                        }
-                    }
-                }
-            }
-            throw ClaudeException(ClaudeErrorKind.BAD_REQUEST, apiMessage = "Claude не завершил поиск за $MAX_TOOL_ROUNDS шагов")
+        val (t, key, model) = prepare(AiPurpose.RESOLVE)
+        val user = "Find nutrition per 100 g for: " + requests.joinToString("; ") { "\"$it\"" }
+        val answer = try {
+            t.toolLoop(key, model, Prompts.PROMPT_RESOLVE_V2, user, tools, final, { name, input -> toolResult(name, input, seenUsda, seenOff, offBrands) }, OTHER_TIMEOUT_MS)
         } catch (e: ClaudeException) {
-            costs.record(AiPurpose.RESOLVE, model, Prompts.RESOLVE_VERSION, total, ok = false, errorCode = e.kind.name)
+            costs.record(AiPurpose.RESOLVE, model, Prompts.RESOLVE_VERSION, e.usage, ok = false, errorCode = e.kind.name)
             throw e
         }
+        costs.record(AiPurpose.RESOLVE, model, Prompts.RESOLVE_VERSION, answer.usage, ok = true)
+        return proposals(answer.json, seenUsda, seenOff, offBrands, t.provider)
     }
 
     private suspend fun toolResult(
-        tu: JsonObject,
+        name: String,
+        input: JsonObject,
         seenUsda: MutableMap<Long, Nutrients>,
         seenOff: MutableMap<String, Nutrients>,
         offBrands: MutableMap<String, String>,
-    ): JsonObject {
-        val id = tu.s("id")!!
-        val input = tu["input"]?.jsonObject ?: JsonObject(emptyMap())
+    ): ToolOutput {
         val (content, isError) = try {
-            when (tu.s("name")) {
+            when (name) {
                 "usda_search" -> {
                     val types = input["data_types"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
                     val foods = usda.search(input.s("query_en").orEmpty(), types)
@@ -226,10 +180,7 @@ class AiService(
         } catch (e: NetException) {
             "error: ${e.problem.name.lowercase()}" to true
         }
-        return buildJsonObject {
-            put("type", "tool_result"); put("tool_use_id", id); put("content", content)
-            if (isError) put("is_error", true)
-        }
+        return ToolOutput(content, isError)
     }
 
     /**
@@ -242,6 +193,7 @@ class AiService(
         seenUsda: Map<Long, Nutrients>,
         seenOff: Map<String, Nutrients>,
         offBrands: Map<String, String>,
+        provider: AiProvider,
     ): List<Proposal> =
         input["foods"]!!.jsonArray.map { e ->
             val o = e.jsonObject
@@ -255,22 +207,22 @@ class AiService(
                 FoodSource.USDA -> {
                     val db = ref?.toLongOrNull()?.let(seenUsda::get)
                     if (db != null) per100 = db
-                    note = "USDA FoodData Central, fdcId $ref" + if (db == null) " (цифры от Claude, проверьте)" else ""
+                    note = "USDA FoodData Central, fdcId $ref" + if (db == null) " (цифры от ${provider.title}, проверьте)" else ""
                 }
                 FoodSource.OFF -> {
                     val db = ref?.let(seenOff::get)
                     if (db != null) per100 = db
-                    note = "Open Food Facts, штрихкод $ref" + if (db == null) " (цифры от Claude, проверьте)" else ""
+                    note = "Open Food Facts, штрихкод $ref" + if (db == null) " (цифры от ${provider.title}, проверьте)" else ""
                 }
                 FoodSource.WEB -> if (ref != null && (ref.startsWith("http://") || ref.startsWith("https://"))) {
                     note = "Веб: $ref"
                 } else {
                     source = FoodSource.CLAUDE_ESTIMATE; ref = null; confidence = Confidence.LOW
-                    note = "Источник без ссылки: считается оценкой Claude."
+                    note = "Источник без ссылки: считается оценкой ${provider.title}."
                 }
                 else -> {
                     source = FoodSource.CLAUDE_ESTIMATE; ref = null
-                    note = "Оценка Claude: в базах не нашлось. Проверьте цифры."
+                    note = "Оценка ${provider.title}: в базах не нашлось. Проверьте цифры."
                 }
             }
             if (source == FoodSource.CLAUDE_ESTIMATE && (confidence == null || confidence == Confidence.HIGH)) confidence = Confidence.MEDIUM
@@ -304,27 +256,10 @@ class AiService(
             "servingG" to nullable("number"), "packageG" to nullable("number"),
             "ean" to nullable("string"), "notes" to nullable("string"),
         )
-        val body = buildJsonObject {
-            put("max_tokens", 1000)
-            put("system", systemBlocks(Prompts.PROMPT_LABEL_V1))
-            putJsonArray("messages") {
-                addJsonObject {
-                    put("role", "user")
-                    putJsonArray("content") {
-                        addJsonObject {
-                            put("type", "image")
-                            putJsonObject("source") {
-                                put("type", "base64"); put("media_type", "image/jpeg")
-                                put("data", Base64.getEncoder().encodeToString(jpeg))
-                            }
-                        }
-                        addJsonObject { put("type", "text"); put("text", "Extract the nutrition table.") }
-                    }
-                }
-            }
-            putJsonObject("output_config") { putJsonObject("format") { put("type", "json_schema"); put("schema", schema) } }
-        }
-        val o = json.parseToJsonElement(call(AiPurpose.LABEL, Prompts.LABEL_VERSION, body, OTHER_TIMEOUT_MS).text).jsonObject
+        val o = structured(
+            AiPurpose.LABEL, Prompts.LABEL_VERSION, Prompts.PROMPT_LABEL_V1,
+            listOf(Part.Jpeg(jpeg), Part.Text("Extract the nutrition table.")), schema, 1000, OTHER_TIMEOUT_MS,
+        )
         val notes = o.s("notes")
         if (o["found"]?.jsonPrimitive?.booleanOrNull != true) return LabelResult.NotFound(notes)
         val kcal = o.d("kcal") ?: o.d("kj")?.let(Nutrition::kcalFromKj)
@@ -371,31 +306,12 @@ class AiService(
             ),
             "notes" to nullable("string"),
         )
-        val body = buildJsonObject {
-            put("max_tokens", 2000)
-            put("system", systemBlocks(Prompts.PROMPT_PHOTO_V2))
-            putJsonArray("messages") {
-                addJsonObject {
-                    put("role", "user")
-                    putJsonArray("content") {
-                        jpegs.forEachIndexed { i, jpeg ->
-                            addJsonObject { put("type", "text"); put("text", "Photo ${i + 1}:") }
-                            addJsonObject {
-                                put("type", "image")
-                                putJsonObject("source") {
-                                    put("type", "base64"); put("media_type", "image/jpeg")
-                                    put("data", Base64.getEncoder().encodeToString(jpeg))
-                                }
-                            }
-                        }
-                        val note = hint?.trim()?.takeIf(String::isNotEmpty)
-                        addJsonObject { put("type", "text"); put("text", if (note != null) "User note: $note" else "No user note.") }
-                    }
-                }
-            }
-            putJsonObject("output_config") { putJsonObject("format") { put("type", "json_schema"); put("schema", schema) } }
+        val parts = buildList {
+            jpegs.forEachIndexed { i, jpeg -> add(Part.Text("Photo ${i + 1}:")); add(Part.Jpeg(jpeg)) }
+            val note = hint?.trim()?.takeIf(String::isNotEmpty)
+            add(Part.Text(if (note != null) "User note: $note" else "No user note."))
         }
-        val o = json.parseToJsonElement(call(AiPurpose.MEAL_PHOTO, Prompts.PHOTO_VERSION, body, OTHER_TIMEOUT_MS).text).jsonObject
+        val o = structured(AiPurpose.MEAL_PHOTO, Prompts.PHOTO_VERSION, Prompts.PROMPT_PHOTO_V2, parts, schema, 2000, OTHER_TIMEOUT_MS)
         val requests = PhotoMapping.requests(o)
         val resolved = if (requests.isEmpty()) emptyList() else resolve(requests)
         return PhotoMapping.combine(o, resolved, barcode)
@@ -423,48 +339,28 @@ class AiService(
             put("text", text.trim())
             putJsonObject("body") { put("sex", sex); put("ageYears", ageYears); put("weightKg", weightKg) }
         }
-        val body = buildJsonObject {
-            put("max_tokens", 1500)
-            put("system", systemBlocks(Prompts.PROMPT_ACTIVITY_V1))
-            putJsonArray("messages") { addJsonObject { put("role", "user"); put("content", input.toString()) } }
-            putJsonObject("output_config") { putJsonObject("format") { put("type", "json_schema"); put("schema", schema) } }
-        }
-        val resp = call(AiPurpose.ACTIVITY, Prompts.ACTIVITY_VERSION, body, OTHER_TIMEOUT_MS)
-        return ActivityMapping.proposals(json.parseToJsonElement(resp.text).jsonObject)
+        val o = structured(AiPurpose.ACTIVITY, Prompts.ACTIVITY_VERSION, Prompts.PROMPT_ACTIVITY_V1, listOf(Part.Text(input.toString())), schema, 1500, OTHER_TIMEOUT_MS)
+        return ActivityMapping.proposals(o)
     }
 
     // ------------------------------------------------------------------ ANALYSIS
 
     /**
-     * Weekly review: the app's aggregates in ([digest], JSON prepared by code — invariant 3), prose out, streamed
-     * (https://platform.claude.com/docs/en/build-with-claude/streaming). Emits text pieces as they arrive.
-     * Thinking stays adaptive (Sonnet 5.5 rejects `disabled`); `output_config.effort` keeps it short:
-     * https://platform.claude.com/docs/en/build-with-claude/effort. Nothing here changes data.
+     * Weekly review: the app's aggregates in ([digest], JSON prepared by code — invariant 3), prose out, streamed.
+     * Emits text pieces as they arrive. Nothing here changes data.
      */
     fun weeklyReview(digest: String): Flow<String> = flow {
-        val s = settings.current()
-        val key = secrets.get(Secret.ANTHROPIC_KEY) ?: throw ClaudeException(ClaudeErrorKind.NO_KEY)
-        try {
-            costs.check(s.aiMonthlyLimitUsd)
-        } catch (e: AiBudgetExceeded) {
-            throw ClaudeException(ClaudeErrorKind.BUDGET)
-        }
-        val model = s.models.getValue(AiPurpose.ANALYSIS)
-        val body = buildJsonObject {
-            put("model", model)
-            put("max_tokens", 8000)
-            put("system", systemBlocks(Prompts.PROMPT_WEEKLY_V3))
-            putJsonArray("messages") { addJsonObject { put("role", "user"); put("content", digest) } }
-            putJsonObject("output_config") { put("effort", "medium") }
-        }
+        val (t, key, model) = prepare(AiPurpose.ANALYSIS)
         var usage = Usage()
         try {
-            client.stream(key, body).collect { e ->
+            t.stream(key, model, Prompts.PROMPT_WEEKLY_V3, digest, 8000).collect { e ->
                 when (e) {
                     is StreamEvent.Text -> emit(e.text)
                     is StreamEvent.Done -> {
                         usage = e.usage
-                        if (e.stopReason == "refusal") throw ClaudeException(ClaudeErrorKind.BAD_REQUEST, apiMessage = "Claude отказался разбирать эти данные")
+                        if (e.stopReason == "refusal") {
+                            throw ClaudeException(ClaudeErrorKind.BAD_REQUEST, apiMessage = "${t.provider.title} отказался разбирать эти данные", provider = t.provider)
+                        }
                     }
                 }
             }
@@ -477,40 +373,45 @@ class AiService(
 
     // ------------------------------------------------------------------ plumbing
 
-    private suspend fun call(purpose: AiPurpose, version: String, body: JsonObject, timeoutMs: Long, record: Boolean = true): ClaudeResponse {
+    private data class Prepared(val transport: AiTransport, val key: String, val model: String)
+
+    /** Active provider, its key and the model for [purpose]; the monthly limit is checked here for every call. */
+    private suspend fun prepare(purpose: AiPurpose): Prepared {
         val s = settings.current()
-        val key = secrets.get(Secret.ANTHROPIC_KEY) ?: throw ClaudeException(ClaudeErrorKind.NO_KEY)
+        val t = transports.getValue(s.aiProvider)
+        val key = secrets.get(keyOf(s.aiProvider)) ?: throw ClaudeException(ClaudeErrorKind.NO_KEY, provider = s.aiProvider)
         try {
             costs.check(s.aiMonthlyLimitUsd)
         } catch (e: AiBudgetExceeded) {
-            throw ClaudeException(ClaudeErrorKind.BUDGET)
+            throw ClaudeException(ClaudeErrorKind.BUDGET, provider = s.aiProvider)
         }
-        val model = s.models.getValue(purpose)
-        val full = JsonObject(body + ("model" to JsonPrimitive(model)))
-        return try {
-            client.send(key, full, timeoutMs).also { if (record) costs.record(purpose, model, version, it.usage, ok = true) }
-        } catch (e: TimeoutCancellationException) {
-            if (record) costs.record(purpose, model, version, Usage(), ok = false, errorCode = "TIMEOUT")
-            throw ClaudeException(ClaudeErrorKind.TIMEOUT)
+        return Prepared(t, key, s.models.getValue(purpose))
+    }
+
+    private suspend fun structured(
+        purpose: AiPurpose, version: String, system: String, parts: List<Part>, schema: JsonObject, maxTokens: Int, timeoutMs: Long,
+    ): JsonObject {
+        val (t, key, model) = prepare(purpose)
+        val answer = try {
+            t.json(key, model, system, parts, schema, maxTokens, timeoutMs)
         } catch (e: ClaudeException) {
-            if (record) costs.record(purpose, model, version, Usage(), ok = false, errorCode = e.kind.name)
+            costs.record(purpose, model, version, e.usage, ok = false, errorCode = e.kind.name)
             throw e
+        } catch (e: kotlinx.serialization.SerializationException) {
+            costs.record(purpose, model, version, Usage(), ok = false, errorCode = "BAD_JSON")
+            throw ClaudeException(ClaudeErrorKind.BAD_REQUEST, apiMessage = "ответ не в формате JSON", provider = t.provider)
         }
+        costs.record(purpose, model, version, answer.usage, ok = true)
+        return answer.json
     }
 
     companion object {
         const val PARSE_TIMEOUT_MS = 15_000L
         const val OTHER_TIMEOUT_MS = 90_000L
-        const val MAX_TOOL_ROUNDS = 8
 
-        /** System prompt as a text block with a cache breakpoint. */
-        fun systemBlocks(text: String) = buildJsonArray {
-            addJsonObject { put("type", "text"); put("text", text); putJsonObject("cache_control") { put("type", "ephemeral") } }
-        }
-
-        fun tool(name: String, description: String, schema: JsonObject, cache: Boolean = false) = buildJsonObject {
-            put("name", name); put("description", description); put("strict", true); put("input_schema", schema)
-            if (cache) putJsonObject("cache_control") { put("type", "ephemeral") }
+        fun keyOf(p: AiProvider): Secret = when (p) {
+            AiProvider.ANTHROPIC -> Secret.ANTHROPIC_KEY
+            AiProvider.QWEN -> Secret.QWEN_KEY
         }
 
         fun str() = JsonObject(mapOf("type" to JsonPrimitive("string")))

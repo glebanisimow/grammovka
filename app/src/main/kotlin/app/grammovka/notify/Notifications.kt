@@ -110,7 +110,7 @@ object Notifications {
         val n = NotificationCompat.Builder(context, CHANNEL_WEEKLY)
             .setSmallIcon(R.drawable.ic_stat_grammovka)
             .setContentTitle("Разбор недели")
-            .setContentText("Неделя закрыта, дней в счёт: $days. Нажмите, и Claude разберёт её.")
+            .setContentText("Неделя закрыта, дней в счёт: $days. Нажмите, и ${app.grammovka.data.ai.ActiveAi.title} разберёт её.")
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()

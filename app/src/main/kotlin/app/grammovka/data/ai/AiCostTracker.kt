@@ -20,13 +20,21 @@ object AiPricing {
         "claude-haiku-5-5" to ModelPrice(input = 0.10, output = 0.50, cacheWrite5m = 0.125, cacheRead = 0.01),
         "claude-sonnet-5-5" to ModelPrice(input = 2.0, output = 10.0, cacheWrite5m = 2.50, cacheRead = 0.10),
         "claude-opus-5-5" to ModelPrice(input = 5.0, output = 25.0, cacheWrite5m = 6.25, cacheRead = 0.50),
+        // Qwen, International (Singapore), non-thinking, input ≤ 256K — https://www.alibabacloud.com/help/en/model-studio/model-pricing
+        // (2026-11-20). qwen3.6-plus is from the official table; qwen-plus from a third-party summary of it — СВЕРИТЬ С PRICING.
+        // Cached input is priced as plain input (overcounts a little; the discount is not verified).
+        "qwen3.6-plus" to ModelPrice(input = 0.50, output = 3.0, cacheWrite5m = 0.50, cacheRead = 0.50),
+        "qwen-plus" to ModelPrice(input = 0.40, output = 1.2, cacheWrite5m = 0.40, cacheRead = 0.40),
     )
 
-    /** $10 per 1,000 searches. */
+    /** Unverified Qwen-side ids (qwen-max, vl, flash, deepseek…) are priced above any of them so the limit still bites. */
+    private val QWEN_FALLBACK = ModelPrice(input = 1.6, output = 6.4, cacheWrite5m = 1.6, cacheRead = 1.6)
+
+    /** $10 per 1,000 searches: Anthropic web search and Qwen `enable_search` in Singapore cost the same. */
     const val WEB_SEARCH_USD = 0.01
 
-    /** Unknown model ids are priced like Sonnet so the monthly limit still bites. */
-    fun price(model: String): ModelPrice = models[model] ?: models.getValue("claude-sonnet-5-5")
+    /** Unknown model ids are priced like Sonnet (Claude) or above the Qwen table (others) so the monthly limit still bites. */
+    fun price(model: String): ModelPrice = models[model] ?: if (model.startsWith("claude")) models.getValue("claude-sonnet-5-5") else QWEN_FALLBACK
 }
 
 data class Usage(

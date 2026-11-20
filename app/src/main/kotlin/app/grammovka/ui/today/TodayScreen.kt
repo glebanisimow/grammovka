@@ -214,7 +214,7 @@ fun TodayScreen(
                     if (open && ui.pending > 0) {
                         item {
                             Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                                Notice("Отложено до сети: ${ui.pending}. Claude разберёт, вы подтвердите.", "Разобрать", onOpenPending)
+                                Notice("Отложено до сети: ${ui.pending}. ${app.grammovka.data.ai.ActiveAi.title} разберёт, вы подтвердите.", "Разобрать", onOpenPending)
                             }
                         }
                     }
@@ -627,7 +627,7 @@ private fun ActivityCard(items: List<app.grammovka.data.db.ActivityEntryEntity>,
                     Text(
                         a.summary() + when (a.source) {
                             app.grammovka.domain.activity.ActivitySource.FORMULA -> " · формула"
-                            app.grammovka.domain.activity.ActivitySource.CLAUDE_ESTIMATE -> " · оценка Claude"
+                            app.grammovka.domain.activity.ActivitySource.CLAUDE_ESTIMATE -> " · оценка ИИ"
                             app.grammovka.domain.activity.ActivitySource.MANUAL -> " · вручную"
                         },
                         style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,

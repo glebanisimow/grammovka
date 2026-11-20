@@ -1,6 +1,8 @@
 package app.grammovka.di
 
 import android.content.Context
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import app.grammovka.BuildConfig
 import app.grammovka.data.ai.AiCostTracker
 import app.grammovka.data.ai.AiService
@@ -49,6 +51,9 @@ class AppContainer(context: Context) {
 
     val anthropicKeyVerifier: KeyVerifier by lazy { AnthropicKeyVerifier(httpClient) }
     val usdaKeyVerifier: KeyVerifier by lazy { UsdaKeyVerifier(httpClient) }
+    val qwenKeyVerifier: KeyVerifier by lazy {
+        app.grammovka.data.keys.QwenKeyVerifier(httpClient) { settingsStore.current().qwenBaseUrl to app.grammovka.data.settings.AiDefaults.QWEN_FAST }
+    }
 
     val updateSource: UpdateSource by lazy { UpdateRepository(appContext) }
 
@@ -107,7 +112,22 @@ class AppContainer(context: Context) {
     val offClient by lazy { OffClient(httpClient, remoteCache, "Grammovka/${BuildConfig.VERSION_NAME} (github.com/glebanisimow/grammovka)") }
     val usdaClient by lazy { UsdaClient(httpClient, remoteCache, secretStore) }
     val aiCostTracker by lazy { AiCostTracker(database.aiCallLogDao()) }
-    val aiService by lazy { AiService(ClaudeClient(httpClient), secretStore, settingsStore, aiCostTracker, usdaClient, offClient) }
+    val aiService by lazy {
+        AiService(
+            mapOf(
+                app.grammovka.data.ai.AiProvider.ANTHROPIC to app.grammovka.data.ai.AnthropicTransport(ClaudeClient(httpClient)),
+                app.grammovka.data.ai.AiProvider.QWEN to app.grammovka.data.ai.QwenTransport(app.grammovka.data.ai.QwenClient(httpClient)) {
+                    settingsStore.current().qwenBaseUrl
+                },
+            ),
+            secretStore, settingsStore, aiCostTracker, usdaClient, offClient,
+        )
+    }
+
+    /** Keeps [app.grammovka.data.ai.ActiveAi] (UI texts) in sync with the chosen provider. */
+    private val aiProviderSync = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
+        settingsStore.settings.map { it.aiProvider }.collect { app.grammovka.data.ai.ActiveAi.provider.value = it }
+    }
     val logEvents = LogEvents()
     val weeklyReviewRepository by lazy { app.grammovka.data.repo.WeeklyReviewRepository(java.io.File(appContext.filesDir, "weekly"), database) }
 }

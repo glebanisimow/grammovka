@@ -6,6 +6,8 @@ import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -58,6 +60,24 @@ class UsdaKeyVerifier(private val http: OkHttpClient) : KeyVerifier {
             .addQueryParameter("pageSize", "1")
             .build()
         return http.check(Request.Builder().url(url).get().build(), ::mapUsdaStatus)
+    }
+}
+
+/**
+ * Qwen (Alibaba Cloud Model Studio): a one-token chat request to the fast model on the configured base URL. The model
+ * list is no proof: it answers 200 on a wrong workspace endpoint too, while calls are denied (checked 2026-11-20).
+ * Costs a few tokens (well under $0.0001). Errors: https://www.alibabacloud.com/help/en/model-studio/error-code
+ */
+class QwenKeyVerifier(private val http: OkHttpClient, private val target: suspend () -> Pair<String, String>) : KeyVerifier {
+    override suspend fun verify(key: String): KeyCheck {
+        val (base, model) = target()
+        val body = """{"model":"$model","messages":[{"role":"user","content":"ok"}],"max_tokens":1,"enable_thinking":false}"""
+        val req = Request.Builder()
+            .url("${base.trimEnd('/')}/chat/completions")
+            .header("Authorization", "Bearer $key")
+            .post(body.toRequestBody("application/json".toMediaType()))
+            .build()
+        return http.check(req, ::mapAnthropicStatus)
     }
 }
 

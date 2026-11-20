@@ -91,7 +91,7 @@ fun ProgressScreen(container: AppContainer, onOpenWeekly: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text("Разбор недели", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Цифры недели и разбор от Claude: что сработало и что поменять",
+                        "Цифры недели и разбор от ${app.grammovka.data.ai.ActiveAi.title}: что сработало и что поменять",
                         style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
                     )
                 }

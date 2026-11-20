@@ -208,7 +208,7 @@ fun ActivitySheet(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    status = "Не удалось разобрать ответ Claude. Заполните поля вручную."
+                    status = "Не удалось разобрать ответ ${app.grammovka.data.ai.ActiveAi.title}. Заполните поля вручную."
                 } finally {
                     job = null
                 }
@@ -260,7 +260,7 @@ fun ActivitySheet(
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(onClick = { run(text) }, enabled = text.isNotBlank() && job == null && !voice.listening, shape = MaterialTheme.shapes.small) {
-                            Text("Разобрать и оценить через Claude")
+                            Text("Разобрать и оценить через ${app.grammovka.data.ai.ActiveAi.title}")
                         }
                         if (job != null) {
                             Spacer(Modifier.width(12.dp))
@@ -270,12 +270,12 @@ fun ActivitySheet(
                     }
                     status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = GTheme.extra.accentText) }
                     Text(
-                        "Считаем только расход сверх покоя: покой уже входит в норму дня. Без Claude поля заполняются вручную, расчёт по формуле.",
+                        "Считаем только расход сверх покоя: покой уже входит в норму дня. Без ИИ поля заполняются вручную, расчёт по формуле.",
                         style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
                     )
                     if (body == null) {
                         Text(
-                            "Для формулы нужны профиль и вес. Пока можно взять оценку Claude или ввести ккал вручную.",
+                            "Для формулы нужны профиль и вес. Пока можно взять оценку ${app.grammovka.data.ai.ActiveAi.title} или ввести ккал вручную.",
                             style = MaterialTheme.typography.bodySmall, color = GTheme.extra.accentText,
                         )
                     }
@@ -340,9 +340,9 @@ private fun DraftCard(d: ActivityDraft, body: Body?, removable: Boolean, onRemov
         if (d.claudeGross != null || c != null) {
             ChoiceRow(
                 selected = d.choice == KcalChoice.CLAUDE, enabled = c != null, onClick = { d.choice = KcalChoice.CLAUDE },
-                title = c?.let { "Claude: ${Fmt.kcal(it)} ккал" } ?: "Claude: укажите минуты",
+                title = c?.let { "ИИ: ${Fmt.kcal(it)} ккал" } ?: "ИИ: укажите минуты",
                 subtitle = listOfNotNull(
-                    "оценка Claude" + (d.claudeConfidence?.let { ", уверенность ${it.label()}" } ?: ""),
+                    "оценка ИИ" + (d.claudeConfidence?.let { ", уверенность ${it.label()}" } ?: ""),
                     d.claudeReasoning.takeIf { it.isNotBlank() },
                 ).joinToString(" · "),
                 accent = true,
