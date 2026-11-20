@@ -154,7 +154,12 @@ class UsdaClient(
 
     private val slow = http.newBuilder().callTimeout(30, TimeUnit.SECONDS).build()
 
-    private suspend fun key(): String = secrets.get(Secret.USDA_KEY) ?: throw NetException(NetProblem.NO_KEY)
+    /**
+     * The user's api.data.gov key, or the public DEMO_KEY (30 requests an hour, 50 a day per IP:
+     * https://api.data.gov/docs/developer-manual/). Enough for one person's new foods; results are cached 30 days.
+     * Without it RESOLVE skipped USDA and went to a slow web search even for raw foods (2026-11-20).
+     */
+    private suspend fun key(): String = secrets.get(Secret.USDA_KEY) ?: "DEMO_KEY"
 
     override suspend fun search(queryEn: String, dataTypes: List<String>, limit: Int): List<UsdaFood> {
         val types = dataTypes.filter { it in ALLOWED_TYPES }.ifEmpty { listOf("Foundation", "SR Legacy") }

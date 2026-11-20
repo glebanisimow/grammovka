@@ -25,10 +25,15 @@ object AiPricing {
         // Cached input is priced as plain input (overcounts a little; the discount is not verified).
         "qwen3.6-plus" to ModelPrice(input = 0.50, output = 3.0, cacheWrite5m = 0.50, cacheRead = 0.50),
         "qwen-plus" to ModelPrice(input = 0.40, output = 1.2, cacheWrite5m = 0.40, cacheRead = 0.40),
+        // Official table 2026-11-20 (qwen3.7-plus before a temporary 20 % discount); qwen3.8-max from a third-party
+        // summary — СВЕРИТЬ С PRICING. Thinking output is billed as output.
+        "qwen3.7-plus" to ModelPrice(input = 0.40, output = 1.6, cacheWrite5m = 0.40, cacheRead = 0.40),
+        "qwen3.7-max" to ModelPrice(input = 2.5, output = 7.5, cacheWrite5m = 2.5, cacheRead = 2.5),
+        "qwen3.8-max" to ModelPrice(input = 2.0, output = 6.0, cacheWrite5m = 2.0, cacheRead = 2.0),
     )
 
     /** Unverified Qwen-side ids (qwen-max, vl, flash, deepseek…) are priced above any of them so the limit still bites. */
-    private val QWEN_FALLBACK = ModelPrice(input = 1.6, output = 6.4, cacheWrite5m = 1.6, cacheRead = 1.6)
+    private val QWEN_FALLBACK = ModelPrice(input = 2.5, output = 7.5, cacheWrite5m = 2.5, cacheRead = 2.5)
 
     /** $10 per 1,000 searches: Anthropic web search and Qwen `enable_search` in Singapore cost the same. */
     const val WEB_SEARCH_USD = 0.01

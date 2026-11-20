@@ -1,6 +1,7 @@
 package app.grammovka.data.ai
 
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -21,8 +22,11 @@ import kotlinx.serialization.json.putJsonObject
  * - structured output: `response_format` json_schema for text, json_object for images (the schema is in the system
  *   prompt for both); thinking off; an answer that is not valid JSON is retried once with the parse error;
  * - web search is not a server tool next to ours: `web_search` here is a client tool that runs a separate
- *   request with `enable_search` and returns the found text with URLs (a URL-less WEB proposal is downgraded to an
- *   estimate by [AiService] anyway); each such request counts as one paid search;
+ *   streamed request with `enable_search` and the `agent` strategy, which really opens pages. The default strategy
+ *   (and `forced_search` alone) only adds a ~200-token snippet or nothing, and the model then answers from memory
+ *   with plausible but unread URLs — measured 2026-11-20 on a fresh NBP rate and on Polish products, so it is not
+ *   used. A search that runs past [SEARCH_TIMEOUT_MS] returns «not found», and the food falls back to a marked
+ *   estimate (a URL-less WEB proposal is downgraded by [AiService] anyway); each search counts as one paid search;
  * - streaming: OpenAI-style deltas, usage in the last chunk.
  */
 class QwenTransport(private val client: QwenClient, private val baseUrl: suspend () -> String) : AiTransport {
@@ -132,10 +136,15 @@ class QwenTransport(private val client: QwenClient, private val baseUrl: suspend
         }
     }
 
-    /** A separate request with the provider's search on; the answer quotes the pages it used. */
+    /**
+     * A separate streamed request with the `agent` search strategy (it needs streaming and thinking:
+     * https://www.alibabacloud.com/help/en/model-studio/web-search); the answer quotes the pages it read.
+     * Its tokens are charged at the RESOLVE model's price, which is above [SEARCH_MODEL]'s, so the limit errs high.
+     */
+    @Suppress("UNUSED_PARAMETER")
     private suspend fun webSearch(base: String, key: String, model: String, query: String, timeoutMs: Long): Pair<String, Usage> {
         val body = buildJsonObject {
-            put("model", model)
+            put("model", SEARCH_MODEL)
             put(
                 "messages",
                 buildJsonArray {
@@ -144,11 +153,23 @@ class QwenTransport(private val client: QwenClient, private val baseUrl: suspend
                 },
             )
             put("enable_search", true)
-            putJsonObject("search_options") { put("forced_search", true) }
-            put("enable_thinking", false)
+            putJsonObject("search_options") { put("forced_search", true); put("search_strategy", "agent") }
         }
-        val reply = send(base, key, body, timeoutMs)
-        return reply.content.ifBlank { "nothing found" } to reply.usage.copy(webSearches = 1)
+        val text = StringBuilder()
+        var usage: Usage? = null
+        val finished = withTimeoutOrNull(SEARCH_TIMEOUT_MS) {
+            client.stream(base, key, body).collect { c ->
+                when (c) {
+                    is QwenChunk.Text -> text.append(c.text)
+                    is QwenChunk.Totals -> usage = c.usage
+                    else -> Unit
+                }
+            }
+        } != null
+        // A cut-off search has no usage report; charge a typical agent search (≈60k in, 5k out) so the limit still bites.
+        val spent = (usage ?: Usage(input = 60_000, output = 5_000)).copy(webSearches = 1)
+        if (!finished) return "nothing found: the search took too long; continue with the databases or an estimate" to spent
+        return text.toString().trim().ifBlank { "nothing found" } to spent
     }
 
     override fun stream(key: String, model: String, system: String, user: String, maxTokens: Int): Flow<StreamEvent> = flow {
@@ -187,9 +208,14 @@ class QwenTransport(private val client: QwenClient, private val baseUrl: suspend
         const val MAX_TOOL_ROUNDS = 8
         const val MAX_SEARCHES = 3
 
+        /** Agent search: qwen3.7-plus read real pages in 26–110 s; qwen3.6-plus once searched for 6 minutes. */
+        const val SEARCH_MODEL = "qwen3.7-plus"
+        const val SEARCH_TIMEOUT_MS = 90_000L
+
         val WEB_SEARCH = ToolDef(
             "web_search",
-            "Search the web (manufacturer pages, Polish shops, nutrition sites). Returns what was found, with page URLs.",
+            "Search the web (manufacturer pages, Polish shops, nutrition sites). Returns what was found, with page URLs. " +
+                "Slow (up to a minute or two): call it only after the databases, and for all foods that need it in the same turn, they run in parallel.",
             AiService.obj("query" to AiService.str()),
         )
 

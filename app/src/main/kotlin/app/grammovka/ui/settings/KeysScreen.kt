@@ -90,7 +90,7 @@ fun KeysScreen(container: AppContainer, onBack: () -> Unit) {
         KeyCard(
             vm, Secret.USDA_KEY, ui.getValue(Secret.USDA_KEY),
             title = "USDA FoodData Central",
-            hint = "Ключ api.data.gov, бесплатный. Нужен для поиска сырых продуктов в базе USDA.",
+            hint = "Ключ api.data.gov, бесплатный. Без него поиск в USDA идёт через общий DEMO_KEY: 30 запросов в час.",
         )
         ClaudeSettings(container)
         Text(

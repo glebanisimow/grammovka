@@ -61,11 +61,22 @@ object AiDefaults {
     const val QWEN_FAST = "qwen-plus"
     const val QWEN_STRONG = "qwen3.6-plus"
 
+    /** Product search loop: as good as qwen3.6-plus on real requests 2026-11-20 and cheaper ($0.4/$1.6). */
+    const val QWEN_RESOLVE = "qwen3.7-plus"
+
+    /** Weekly review: more specific and closer to the prompt's rules than qwen3.6-plus (which once proposed a food swap). */
+    const val QWEN_ANALYSIS = "qwen3.8-max"
+
     fun model(p: AiPurpose): String = model(app.grammovka.data.ai.AiProvider.ANTHROPIC, p)
 
     fun model(provider: app.grammovka.data.ai.AiProvider, p: AiPurpose): String = when (provider) {
         app.grammovka.data.ai.AiProvider.ANTHROPIC -> if (p == AiPurpose.PARSE) FAST else STRONG
-        app.grammovka.data.ai.AiProvider.QWEN -> if (p == AiPurpose.PARSE) QWEN_FAST else QWEN_STRONG
+        app.grammovka.data.ai.AiProvider.QWEN -> when (p) {
+            AiPurpose.PARSE -> QWEN_FAST
+            AiPurpose.RESOLVE -> QWEN_RESOLVE
+            AiPurpose.ANALYSIS -> QWEN_ANALYSIS
+            else -> QWEN_STRONG
+        }
     }
 }
 
