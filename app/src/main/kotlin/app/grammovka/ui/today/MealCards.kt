@@ -114,14 +114,16 @@ fun EmptyMealCard(card: OpenCard, target: Boolean, onAdd: () -> Unit, onClose: (
         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("${card.meal.title} · ${card.at.hm()}", style = MaterialTheme.typography.titleSmall)
-                Text("Пусто. Введите в строке внизу, что съели.", style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted)
+                Text(
+                    if (target) "Пусто. Выберите позицию или введите внизу, что съели." else "Пусто.",
+                    style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+                )
             }
             IconButton(onClick = onClose) { Icon(GIcons.Close, "Убрать пустой приём") }
         }
-        if (!target) {
-            HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            AddRow(onAdd)
-        }
+        // «+ позиция» always: a fresh card is the input target at once, and the catalog is the quickest path into it.
+        HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        AddRow(onAdd)
     }
 }
 
