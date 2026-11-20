@@ -1,6 +1,9 @@
 package app.grammovka.data.ai
 
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.JsonArray
@@ -99,20 +102,27 @@ class QwenTransport(private val client: QwenClient, private val baseUrl: suspend
                     messages += QwenProtocol.message("user", "Call ${final.name} now with what you have; use CLAUDE_ESTIMATE where nothing was found.")
                     return@repeat
                 }
-                reply.toolCalls.forEach { c ->
-                    val input = QwenProtocol.extractJson(c.arguments) ?: JsonObject(emptyMap())
-                    val out = if (c.name == WEB_SEARCH.name) {
-                        if (searches >= MAX_SEARCHES) {
-                            ToolOutput("error: the search limit is used up; continue with what you have", isError = true)
-                        } else {
-                            searches++
-                            val (text, u) = webSearch(base, key, model, (input["query"] as? JsonPrimitive)?.contentOrNull.orEmpty(), timeoutMs)
-                            total += u
-                            ToolOutput(text)
+                // The calls of one turn run in parallel (two foods = two searches at once: 64 s → about half on a
+                // real request 2026-11-20); results go back in the call order.
+                val searchAllowed = reply.toolCalls.map { c ->
+                    c.name != WEB_SEARCH.name || (searches < MAX_SEARCHES).also { if (it) searches++ }
+                }
+                val outs = coroutineScope {
+                    reply.toolCalls.mapIndexed { i, c ->
+                        async {
+                            val input = QwenProtocol.extractJson(c.arguments) ?: JsonObject(emptyMap())
+                            when {
+                                c.name != WEB_SEARCH.name -> exec(c.name, input) to Usage()
+                                !searchAllowed[i] -> ToolOutput("error: the search limit is used up; continue with what you have", isError = true) to Usage()
+                                else -> webSearch(base, key, model, (input["query"] as? JsonPrimitive)?.contentOrNull.orEmpty(), timeoutMs)
+                                    .let { (text, u) -> ToolOutput(text) to u }
+                            }
                         }
-                    } else {
-                        exec(c.name, input)
-                    }
+                    }.awaitAll()
+                }
+                reply.toolCalls.zip(outs).forEach { (c, r) ->
+                    val (out, u) = r
+                    total += u
                     messages += QwenProtocol.toolResult(c.id, if (out.isError && !out.content.startsWith("error")) "error: ${out.content}" else out.content)
                 }
             }

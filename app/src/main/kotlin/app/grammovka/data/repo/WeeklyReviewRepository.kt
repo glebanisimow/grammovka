@@ -111,6 +111,7 @@ class WeeklyReviewRepository(private val dir: File, db: AppDatabase) {
         val body = buildJsonObject {
             put("today", today.toString())
             putJsonObject("week") { put("from", monday.toString()); put("to", to.toString()); put("closed", sundayClosedAt != null) }
+            putJsonObject("user") { put("sex", profile.sex?.name) }
             putJsonObject("goal") {
                 put("ratePercentPerWeek", profile.ratePercentPerWeek)
                 last?.let { put("targetLossKgPerWeek", r1(profile.ratePercentPerWeek / 100 * it.trendWeight)) }

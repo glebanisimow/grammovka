@@ -10,7 +10,7 @@ object Prompts {
     const val LABEL_VERSION = "LABEL_V1"
     const val PHOTO_VERSION = "PHOTO_V2"
     const val ACTIVITY_VERSION = "ACTIVITY_V1"
-    const val WEEKLY_VERSION = "WEEKLY_V3"
+    const val WEEKLY_VERSION = "WEEKLY_V4"
 
     /**
      * V2 (user feedback 2026-11-15): V1 read as a strict-diet coach: it banned praise, treated sweets that fit the
@@ -96,6 +96,16 @@ object Prompts {
         needs no changes. Under «Цифры» give three or four short lines starting with "- ": the week's balance, the
         average against the target, the trend weight change and, if useful, protein or fiber. No other markup: no bold, no
         tables, no emoji. Numbers with units («2 150 ккал», «142 г белка»). About 150–250 words in total.
+    """.trimIndent()
+
+    /**
+     * V4 (2026-11-20): V3 plus the reader's grammatical gender. The app is shared with a woman; without it the review
+     * defaulted to masculine forms («ты удержал»).
+     */
+    val PROMPT_WEEKLY_V4 = PROMPT_WEEKLY_V3 + "\n\n" + """
+        user.sex is the reader's sex (MALE, FEMALE or null). Russian verbs and adjectives addressed to them follow it:
+        FEMALE → «ты удержала», «ты молодец, справилась»; MALE → «ты удержал». If it is null, avoid gendered forms
+        (present tense, «у тебя получилось»).
     """.trimIndent()
 
     val PROMPT_WEEKLY_V1 = """

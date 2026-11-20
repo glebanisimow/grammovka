@@ -129,9 +129,10 @@ class AiService(
             ToolDef("off_product", "Get one Open Food Facts product by barcode.", obj("barcode" to str())),
         )
         val final = ToolDef("propose_foods", "Final answer: one proposal per requested food.", proposeSchema())
-        val seenUsda = mutableMapOf<Long, Nutrients>()
-        val seenOff = mutableMapOf<String, Nutrients>()
-        val offBrands = mutableMapOf<String, String>()
+        // Concurrent maps: a transport may run the tool calls of one turn in parallel.
+        val seenUsda = java.util.concurrent.ConcurrentHashMap<Long, Nutrients>()
+        val seenOff = java.util.concurrent.ConcurrentHashMap<String, Nutrients>()
+        val offBrands = java.util.concurrent.ConcurrentHashMap<String, String>()
         val (t, key, model) = prepare(AiPurpose.RESOLVE)
         val user = "Find nutrition per 100 g for: " + requests.joinToString("; ") { "\"$it\"" }
         val answer = try {
@@ -353,7 +354,7 @@ class AiService(
         val (t, key, model) = prepare(AiPurpose.ANALYSIS)
         var usage = Usage()
         try {
-            t.stream(key, model, Prompts.PROMPT_WEEKLY_V3, digest, 8000).collect { e ->
+            t.stream(key, model, Prompts.PROMPT_WEEKLY_V4, digest, 8000).collect { e ->
                 when (e) {
                     is StreamEvent.Text -> emit(e.text)
                     is StreamEvent.Done -> {
