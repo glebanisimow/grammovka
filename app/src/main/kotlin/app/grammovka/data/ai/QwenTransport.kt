@@ -1,5 +1,7 @@
 package app.grammovka.data.ai
 
+import app.grammovka.data.ai.prompts.Prompts
+
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.async
@@ -29,7 +31,11 @@ import kotlinx.serialization.json.putJsonObject
  *   estimate (a URL-less WEB proposal is downgraded by [AiService] anyway); each search counts as one paid search;
  * - streaming: OpenAI-style deltas, usage in the last chunk.
  */
-class QwenTransport(private val client: QwenClient, private val baseUrl: suspend () -> String) : AiTransport {
+class QwenTransport(
+    private val client: QwenClient,
+    private val baseUrl: suspend () -> String,
+    private val country: suspend () -> app.grammovka.data.settings.Country,
+) : AiTransport {
     override val provider = AiProvider.QWEN
 
     override suspend fun json(key: String, model: String, system: String, parts: List<Part>, schema: JsonObject, maxTokens: Int, timeoutMs: Long): AiAnswer {
@@ -118,8 +124,8 @@ class QwenTransport(private val client: QwenClient, private val baseUrl: suspend
                             when {
                                 c.name != WEB_SEARCH.name -> exec(c.name, input) to Usage()
                                 !searchAllowed[i] -> ToolOutput("error: the search limit is used up; continue with what you have", isError = true) to Usage()
-                                else -> webSearch(base, key, model, (input["query"] as? JsonPrimitive)?.contentOrNull.orEmpty(), timeoutMs)
-                                    .let { (text, u) -> ToolOutput(text) to u }
+                                else -> webSearch(base, key, (input["query"] as? JsonPrimitive)?.contentOrNull.orEmpty(), Prompts.webSearchSystem(country()))
+                                    .let { w -> ToolOutput(w.text) to w.usage }
                             }
                         }
                     }.awaitAll()
@@ -141,14 +147,15 @@ class QwenTransport(private val client: QwenClient, private val baseUrl: suspend
      * https://www.alibabacloud.com/help/en/model-studio/web-search); the answer quotes the pages it read.
      * Its tokens are charged at the RESOLVE model's price, which is above [SEARCH_MODEL]'s, so the limit errs high.
      */
-    @Suppress("UNUSED_PARAMETER")
-    private suspend fun webSearch(base: String, key: String, model: String, query: String, timeoutMs: Long): Pair<String, Usage> {
+    override suspend fun webLookup(key: String, query: String, system: String): WebText = webSearch(baseUrl(), key, query, system)
+
+    private suspend fun webSearch(base: String, key: String, query: String, system: String): WebText {
         val body = buildJsonObject {
             put("model", SEARCH_MODEL)
             put(
                 "messages",
                 buildJsonArray {
-                    add(QwenProtocol.message("system", SEARCH_SYSTEM))
+                    add(QwenProtocol.message("system", system))
                     add(QwenProtocol.message("user", query))
                 },
             )
@@ -168,8 +175,8 @@ class QwenTransport(private val client: QwenClient, private val baseUrl: suspend
         } != null
         // A cut-off search has no usage report; charge a typical agent search (≈60k in, 5k out) so the limit still bites.
         val spent = (usage ?: Usage(input = 60_000, output = 5_000)).copy(webSearches = 1)
-        if (!finished) return "nothing found: the search took too long; continue with the databases or an estimate" to spent
-        return text.toString().trim().ifBlank { "nothing found" } to spent
+        if (!finished) return WebText("nothing found: the search took too long; continue with the databases or an estimate", spent, false)
+        return WebText(text.toString().trim().ifBlank { "nothing found" }, spent, true)
     }
 
     override fun stream(key: String, model: String, system: String, user: String, maxTokens: Int): Flow<StreamEvent> = flow {
@@ -208,22 +215,20 @@ class QwenTransport(private val client: QwenClient, private val baseUrl: suspend
         const val MAX_TOOL_ROUNDS = 8
         const val MAX_SEARCHES = 3
 
-        /** Agent search: qwen3.7-plus read real pages in 26–110 s; qwen3.6-plus once searched for 6 minutes. */
+        /**
+         * Agent search: qwen3.7-plus read real pages in 26–110 s; qwen3.6-plus once searched for 6 minutes. With the
+         * stop-at-the-first-page prompt (2026-11-21) Belarusian brands took 11–37 s, while one glazed curd snack ran
+         * 200 s and 20 ¢ chasing fiber that no page had; hence 45 s, then a marked estimate.
+         */
         const val SEARCH_MODEL = "qwen3.7-plus"
-        const val SEARCH_TIMEOUT_MS = 90_000L
+        const val SEARCH_TIMEOUT_MS = 45_000L
 
         val WEB_SEARCH = ToolDef(
             "web_search",
-            "Search the web (manufacturer pages, Polish shops, nutrition sites). Returns what was found, with page URLs. " +
-                "Slow (up to a minute or two): call it only after the databases, and for all foods that need it in the same turn, they run in parallel.",
+            "Search the web (manufacturer pages, large local shops, nutrition sites). Returns what was found, with page URLs. " +
+                "Slow (up to 45 seconds): call it only after the databases, and for all foods that need it in the same turn, they run in parallel.",
             AiService.obj("query" to AiService.str()),
         )
 
-        private val SEARCH_SYSTEM = """
-            You look up nutrition facts on the web for a food diary app. Search for the query and report the values per 100 g
-            (kcal, protein, fat, carbohydrates, fiber) exactly as the pages publish them, each with the full URL of the page.
-            Prefer the manufacturer, then large shops, then nutrition databases. If pages disagree, list each with its URL.
-            If nothing reliable is found, say so plainly. Do not estimate.
-        """.trimIndent()
     }
 }

@@ -115,10 +115,12 @@ class AppContainer(context: Context) {
     val aiService by lazy {
         AiService(
             mapOf(
-                app.grammovka.data.ai.AiProvider.ANTHROPIC to app.grammovka.data.ai.AnthropicTransport(ClaudeClient(httpClient)),
-                app.grammovka.data.ai.AiProvider.QWEN to app.grammovka.data.ai.QwenTransport(app.grammovka.data.ai.QwenClient(httpClient)) {
-                    settingsStore.current().qwenBaseUrl
-                },
+                app.grammovka.data.ai.AiProvider.ANTHROPIC to app.grammovka.data.ai.AnthropicTransport(ClaudeClient(httpClient)) { settingsStore.current().country },
+                app.grammovka.data.ai.AiProvider.QWEN to app.grammovka.data.ai.QwenTransport(
+                    app.grammovka.data.ai.QwenClient(httpClient),
+                    baseUrl = { settingsStore.current().qwenBaseUrl },
+                    country = { settingsStore.current().country },
+                ),
             ),
             secretStore, settingsStore, aiCostTracker, usdaClient, offClient,
         )

@@ -16,6 +16,9 @@ data class ToolDef(val name: String, val description: String, val schema: JsonOb
 
 data class ToolOutput(val content: String, val isError: Boolean = false)
 
+/** A web lookup answered as prose; [finished] is false when it was cut off by its time limit. */
+data class WebText(val text: String, val usage: Usage, val finished: Boolean)
+
 /** What a call returned: the JSON answer (or the final tool's input) and the tokens it took. */
 data class AiAnswer(val json: JsonObject, val usage: Usage)
 
@@ -45,6 +48,12 @@ interface AiTransport {
         exec: suspend (name: String, input: JsonObject) -> ToolOutput,
         timeoutMs: Long,
     ): AiAnswer
+
+    /**
+     * One web lookup outside a tool loop, answered as prose with page URLs ([system] says what to look for).
+     * Null when the provider has no such call (Anthropic searches only inside [toolLoop]).
+     */
+    suspend fun webLookup(key: String, query: String, system: String): WebText? = null
 
     /** Plain text, streamed. The last event is [StreamEvent.Done]; a refusal or content filter is stopReason "refusal". */
     fun stream(key: String, model: String, system: String, user: String, maxTokens: Int): Flow<StreamEvent>

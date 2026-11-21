@@ -1,14 +1,21 @@
 package app.grammovka.data.ai.prompts
 
+import app.grammovka.data.settings.Country
+
 /**
  * Versioned prompts. The version string is written to ai_call_log. Bump the suffix on any wording change.
  * Stable text goes first so the system prompt and tool definitions can be cached.
  */
 object Prompts {
     const val PARSE_VERSION = "PARSE_V1"
-    const val RESOLVE_VERSION = "RESOLVE_V2"
-    const val LABEL_VERSION = "LABEL_V1"
-    const val PHOTO_VERSION = "PHOTO_V2"
+    /** V3 (2026-11-21): the country is a setting (Poland or Belarus), not hard-coded Poland. */
+    const val RESOLVE_VERSION = "RESOLVE_V3"
+    /** Qwen product search without a tool loop: plan the queries, the app searches, one pick, web only if needed. */
+    const val RESOLVE_PLAN_VERSION = "RPLAN_V1"
+    const val RESOLVE_PICK_VERSION = "RPICK_V1"
+    const val RESOLVE_WEB_VERSION = "RWEB_V1"
+    const val LABEL_VERSION = "LABEL_V2"
+    const val PHOTO_VERSION = "PHOTO_V3"
     const val ACTIVITY_VERSION = "ACTIVITY_V1"
     const val WEEKLY_VERSION = "WEEKLY_V4"
 
@@ -165,18 +172,18 @@ object Prompts {
         Never invent a weight that is not in the fragment. Never compute calories or totals.
     """.trimIndent()
 
-    /** V2 (2026-11-16): fiber is tracked in the diary, so it must not be dropped when the source has it. */
-    val PROMPT_RESOLVE_V2 = """
-        You find nutrition facts per 100 g for foods the user ate. The user lives in Poland; packaged products are mostly Polish.
+    /** V2 (2026-11-16): fiber is tracked in the diary, so it must not be dropped when the source has it. V3: country. */
+    fun resolveV3(c: Country) = """
+        You find nutrition facts per 100 g for foods the user ate. The user lives in ${c.nameEn}; ${c.packagedNote}.
         Rules:
         1. Databases beat your own knowledge. For generic and raw foods translate the name to English and call usda_search
            with data_types ["Foundation", "SR Legacy"]; for prepared dishes use ["Survey (FNDDS)"]. Use usda_food for details.
-        2. For branded or packaged products (especially Polish) call off_search (country "pl"), and off_product when you know a barcode.
+        2. For branded or packaged products call off_search (country "${c.iso.lowercase()}"), and off_product when you know a barcode.
         3. Use web_search only when the databases have nothing suitable. Then source is WEB and sourceRef is the page URL.
         4. Only if nothing is found, give your own estimate with source CLAUDE_ESTIMATE and confidence MEDIUM or LOW, never HIGH.
         5. Copy per-100 g values exactly as the source gives them. Do not scale to a portion, do not sum, do not compute totals.
            Fiber matters to the user: always fill it when the source has it (USDA "Fiber, total dietary", OFF fiber_100g,
-           «błonnik» on Polish labels and pages). null only when no source gives it; with CLAUDE_ESTIMATE estimate fiber too.
+           fiber on labels and pages). null only when no source gives it; with CLAUDE_ESTIMATE estimate fiber too.
         6. sourceRef: USDA → the fdcId as a string; OFF → the barcode; WEB → the URL; CLAUDE_ESTIMATE → null.
         7. basis: RAW for raw ingredients, COOKED for cooked dishes, AS_SOLD for packaged products as sold.
         8. If the food is usually counted in pieces (fruit, eggs, bread slices, cookies), set typicalPortionName «шт» and the
@@ -185,9 +192,60 @@ object Prompts {
         Finish by calling propose_foods exactly once with one entry per requested food, in the request order, with "request" copied verbatim.
     """.trimIndent()
 
-    val PROMPT_LABEL_V1 = """
-        You read a photo of a food package and extract the nutrition table exactly as printed. Labels are often Polish
-        («Wartość odżywcza», «w 100 g», «Wartość energetyczna», «Tłuszcz», «Węglowodany», «Błonnik», «Białko»).
+    /** Qwen search, step 1: what to look up where (the app then queries USDA and Open Food Facts itself, in parallel). */
+    fun resolvePlan(c: Country) = """
+        For each food from a Russian-language food diary (the user lives in ${c.nameEn}; ${c.packagedNote}) plan the database lookups.
+        Output one item per food, in the request order, with "request" copied verbatim:
+        - queryEn: an English USDA FoodData Central query for the closest generic food, with the details that change
+          calories ("potato pancakes", "cottage cheese 5% fat", "pork, ground, raw").
+        - usdaTypes: ["Survey (FNDDS)"] for prepared dishes, ["Foundation", "SR Legacy"] for raw and simple foods.
+        - branded: true when a brand or a specific packaged product is named (or the food is usually bought packaged
+          under a brand, e.g. a glazed curd snack); false for generic, raw and home-made food.
+        - offQuery: for branded foods, the product name as on the package in the local language, with brand and fat %
+          ("творог Савушкин 5%"); otherwise null.
+    """.trimIndent()
+
+    /** Qwen search, step 2: one call picks from the candidates the app found, or asks for the web, or estimates. */
+    fun resolvePick(c: Country) = """
+        You choose nutrition facts per 100 g for foods from a Russian-language food diary (the user lives in ${c.nameEn}).
+        For every food you get the candidates the app found in USDA FoodData Central and Open Food Facts (with per-100 g values).
+        Output one item per food, in the request order, with "request" copied verbatim:
+        1. A candidate that is the same food → choice "db", source USDA or OFF, sourceRef its ref, values copied exactly.
+           For a branded food the OFF candidate must have the same brand and the same kind and fat % (a 5% curd is not a
+           9% curd or a soft curd). For a generic food take the closest USDA candidate in the right state (raw, cooked, dish).
+        2. A branded food with no matching candidate → choice "web": it will be looked up on the web. Still fill the
+           values with your own estimate (source CLAUDE_ESTIMATE, sourceRef null): it is the fallback if the web finds nothing.
+        3. A generic or home-made food with no close candidate → choice "estimate", source CLAUDE_ESTIMATE, sourceRef null,
+           your own estimate. Never "web" for generic food.
+        Confidence: HIGH only for a database match; estimates are MEDIUM or LOW.
+        Fiber matters to the user: copy it when the candidate has it; null when it does not; estimate it with CLAUDE_ESTIMATE.
+        basis: RAW for raw ingredients, COOKED for cooked dishes, AS_SOLD for packaged products as sold.
+        If the food is usually counted in pieces (fruit, eggs, bread slices, cookies), set typicalPortionName «шт» and the
+        typical weight of one piece in grams in typicalPortionG; otherwise both null.
+        nameRu: a natural Russian name for the catalog, e.g. «Творог 5% (Савушкин)», «Драники».
+        Copy per-100 g values; never scale to a portion, never sum.
+    """.trimIndent()
+
+    /** Qwen search, step 3: the web search request itself (agent strategy); stop at the first page with the numbers. */
+    fun webSearchSystem(c: Country) = """
+        You look up nutrition facts on the web for a food diary app (the user lives in ${c.nameEn}). Find ONE reliable page
+        for the product (the manufacturer or one of the large ${c.shops}) and report its values per 100 g (kcal, protein,
+        fat, carbohydrates, and fiber if the page has it) exactly as published, with the full URL of that page. Stop as soon
+        as one page gives kcal, protein, fat and carbohydrates: do not compare sources, do not look for more, do not search
+        for missing fiber. If nothing is found quickly, say so plainly. Do not estimate. Answer in under 80 words.
+    """.trimIndent()
+
+    /** Qwen search, step 4: numbers out of the web answers. */
+    val RESOLVE_WEB_EXTRACT = """
+        You get web search answers about the nutrition of foods. For each item output the per-100 g values exactly as the
+        answer quotes them and the URL of the page they come from. found: false (values and url null) if the answer has no
+        numbers, says nothing was found, or gives no URL. Never estimate, never compute. Keep the order and copy "request".
+    """.trimIndent()
+
+    /** V2 (2026-11-21): label vocabulary by country. */
+    fun labelV2(c: Country) = """
+        You read a photo of a food package and extract the nutrition table exactly as printed.
+        ${c.labelHint}
         - found: false if there is no readable nutrition table.
         - Prefer the per 100 g or per 100 ml column; per is "100g" or "100ml". Use "serving" only if no per-100 column exists,
           and then give servingG (the serving weight in grams as printed).
@@ -197,8 +255,9 @@ object Prompts {
         - notes: anything unclear, in Russian, short. Never compute or round numbers.
     """.trimIndent()
 
-    val PROMPT_PHOTO_V2 = """
-        You identify food from 1–4 photos taken by the user (Poland): the food itself, its cross-section, its package or
+    /** V3 (2026-11-21): country from the settings. */
+    fun photoV3(c: Country) = """
+        You identify food from 1–4 photos taken by the user (${c.nameEn}): the food itself, its cross-section, its package or
         label without a nutrition table, or a plate with several components. An optional note from the user may follow.
         You do NOT give nutrition numbers: another step looks them up in databases. Your job is to say precisely what it is.
         Output one item per distinct food. The photos belong to ONE request: unless the foods are visibly different, they

@@ -176,7 +176,7 @@ class ReviewViewModel(
                 }
                 if (toResolve.isNotEmpty()) {
                     aiStatus = "Ищу в USDA, Open Food Facts и вебе…" +
-                        if (app.grammovka.data.ai.ActiveAi.provider.value == app.grammovka.data.ai.AiProvider.QWEN) " Новый продукт Qwen ищет до 2 минут." else ""
+                        if (app.grammovka.data.ai.ActiveAi.provider.value == app.grammovka.data.ai.AiProvider.QWEN) " Если продукта нет в базах, Qwen ищет его в вебе до минуты." else ""
                     val proposals = svc.resolve(toResolve.map { it.second.nameRu.ifBlank { it.first.fragment.name } })
                     toResolve.forEachIndexed { i, (item, p) ->
                         val prop = proposals.getOrNull(i) ?: return@forEachIndexed

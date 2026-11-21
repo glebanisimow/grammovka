@@ -111,6 +111,8 @@ data class AppSettings(
     /** Qwen base URL (already normalized, see [app.grammovka.data.ai.QwenEndpoint]). */
     val qwenBaseUrl: String = app.grammovka.data.ai.QwenEndpoint.SHARED,
     val models: Map<AiPurpose, String> = AiPurpose.entries.associateWith { AiDefaults.model(aiProvider, it) },
+    /** Where the user buys food: steers product search (see [Country]). */
+    val country: Country = Country.PL,
 )
 
 class SettingsStore(private val context: Context) {
@@ -133,6 +135,7 @@ class SettingsStore(private val context: Context) {
         val weeklyNotified = stringPreferencesKey("weekly_review_notified_week")
         val provider = stringPreferencesKey("ai_provider")
         val qwenBase = stringPreferencesKey("qwen_base_url")
+        val country = stringPreferencesKey("country")
 
         /** Claude keys keep their pre-Qwen names, so existing choices survive the update. */
         fun model(provider: app.grammovka.data.ai.AiProvider, p: AiPurpose) =
@@ -169,6 +172,7 @@ class SettingsStore(private val context: Context) {
             aiProvider = provider,
             qwenBaseUrl = p[K.qwenBase] ?: d.qwenBaseUrl,
             models = AiPurpose.entries.associateWith { p[K.model(provider, it)]?.takeIf(String::isNotBlank) ?: AiDefaults.model(provider, it) },
+            country = p[K.country]?.let { runCatching { Country.valueOf(it) }.getOrNull() } ?: d.country,
         )
     }
 
@@ -212,6 +216,10 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setAiProvider(provider: app.grammovka.data.ai.AiProvider) {
         context.settingsDataStore.edit { it[K.provider] = provider.name }
+    }
+
+    suspend fun setCountry(country: Country) {
+        context.settingsDataStore.edit { it[K.country] = country.name }
     }
 
     suspend fun setQwenBaseUrl(url: String) {

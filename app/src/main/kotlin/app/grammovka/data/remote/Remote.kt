@@ -63,7 +63,8 @@ data class OffProduct(
 interface OffApi {
     /** Null when the barcode is unknown to OFF. */
     suspend fun product(barcode: String): OffProduct?
-    suspend fun search(query: String, limit: Int = 5): List<OffProduct>
+    /** Products sold in [country]. */
+    suspend fun search(query: String, country: app.grammovka.data.settings.Country, limit: Int = 5): List<OffProduct>
 }
 
 /**
@@ -82,14 +83,14 @@ class OffClient(private val http: OkHttpClient, private val cache: RemoteCache, 
         return parseProduct(body)
     }
 
-    override suspend fun search(query: String, limit: Int): List<OffProduct> {
+    override suspend fun search(query: String, country: app.grammovka.data.settings.Country, limit: Int): List<OffProduct> {
         val q = query.trim()
         val url = "https://search.openfoodfacts.org/search".toHttpUrl().newBuilder()
-            .addQueryParameter("q", "$q countries_tags:\"en:poland\"")
+            .addQueryParameter("q", "$q countries_tags:\"${country.offTag}\"")
             .addQueryParameter("page_size", limit.toString())
             .addQueryParameter("fields", "code,product_name,product_name_pl,brands,quantity,nutriments")
             .build()
-        val body = cache.getOrFetch("off:search:${q.lowercase()}:$limit") { http.getText(req(url.toString())) }
+        val body = cache.getOrFetch("off:search:${country.iso}:${q.lowercase()}:$limit") { http.getText(req(url.toString())) }
         return parseSearch(body)
     }
 

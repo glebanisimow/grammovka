@@ -28,7 +28,10 @@ import java.util.Base64
  * images https://platform.claude.com/docs/en/build-with-claude/vision,
  * effort https://platform.claude.com/docs/en/build-with-claude/effort.
  */
-class AnthropicTransport(private val client: ClaudeClient) : AiTransport {
+class AnthropicTransport(
+    private val client: ClaudeClient,
+    private val country: suspend () -> app.grammovka.data.settings.Country,
+) : AiTransport {
     override val provider = AiProvider.ANTHROPIC
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -48,11 +51,12 @@ class AnthropicTransport(private val client: ClaudeClient) : AiTransport {
         key: String, model: String, system: String, user: String, tools: List<ToolDef>, final: ToolDef,
         exec: suspend (String, JsonObject) -> ToolOutput, timeoutMs: Long,
     ): AiAnswer {
+        val c = country()
         val toolsJson = buildJsonArray {
             tools.forEach { add(tool(it)) }
             add(buildJsonObject {
                 put("type", "web_search_20250305"); put("name", "web_search"); put("max_uses", 3)
-                putJsonObject("user_location") { put("type", "approximate"); put("country", "PL"); put("timezone", "Europe/Warsaw") }
+                putJsonObject("user_location") { put("type", "approximate"); put("country", c.iso); put("timezone", c.timezone) }
             })
             add(tool(final, cache = true))
         }

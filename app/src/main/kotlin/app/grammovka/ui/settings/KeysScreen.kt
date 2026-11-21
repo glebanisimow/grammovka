@@ -71,6 +71,7 @@ fun KeysScreen(container: AppContainer, onBack: () -> Unit) {
             Text("Ключи API и ИИ", style = MaterialTheme.typography.headlineSmall)
         }
         ProviderPicker(settings.aiProvider) { p -> scope.launch { container.settingsStore.setAiProvider(p) } }
+        CountryPicker(settings.country) { c -> scope.launch { container.settingsStore.setCountry(c) } }
         when (settings.aiProvider) {
             AiProvider.ANTHROPIC -> KeyCard(
                 vm, Secret.ANTHROPIC_KEY, ui.getValue(Secret.ANTHROPIC_KEY),
@@ -90,7 +91,7 @@ fun KeysScreen(container: AppContainer, onBack: () -> Unit) {
         KeyCard(
             vm, Secret.USDA_KEY, ui.getValue(Secret.USDA_KEY),
             title = "USDA FoodData Central",
-            hint = "Ключ api.data.gov, бесплатный. Без него поиск в USDA идёт через общий DEMO_KEY: 30 запросов в час.",
+            hint = "Ключ api.data.gov, бесплатный. Без него поиск в USDA идёт через общий DEMO_KEY с малым лимитом (десятки запросов в час, 50 в день), и продукты чаще считаются оценкой ИИ. Получить: api.data.gov/signup.",
         )
         ClaudeSettings(container)
         Text(
@@ -201,6 +202,27 @@ private fun ProviderPicker(current: AiProvider, onPick: (AiProvider) -> Unit) {
         }
         Text(
             "Qwen — для стран, где Claude недоступен. Ключи и модели у каждого свои, переключение ничего не удаляет.",
+            style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
+        )
+    }
+}
+
+/** Where the user buys food: the AI searches that country's products and shops. */
+@Composable
+private fun CountryPicker(current: app.grammovka.data.settings.Country, onPick: (app.grammovka.data.settings.Country) -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Страна", style = MaterialTheme.typography.titleMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            app.grammovka.data.settings.Country.entries.forEach { c ->
+                androidx.compose.material3.FilterChip(selected = current == c, onClick = { onPick(c) }, label = { Text(c.title) })
+            }
+        }
+        Text(
+            "Где вы покупаете продукты: ИИ ищет товары этой страны в Open Food Facts, в местных магазинах и на этикетках.",
             style = MaterialTheme.typography.bodySmall, color = GTheme.extra.textMuted,
         )
     }

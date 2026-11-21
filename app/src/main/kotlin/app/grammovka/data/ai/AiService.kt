@@ -18,6 +18,9 @@ import app.grammovka.domain.model.Nutrition
 import app.grammovka.domain.parse.Fragment
 import app.grammovka.domain.parse.PortionNames
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
@@ -119,13 +122,19 @@ class AiService(
 
     // ------------------------------------------------------------------ RESOLVE
 
-    /** Tool loop: client tools hit USDA/OFF through our cached clients; web search is the provider's. */
+    /**
+     * Claude: a tool loop (client tools hit USDA/OFF through our cached clients; web search is the provider's).
+     * Qwen: [resolveDirect], which is several times faster than its tool loop.
+     */
     suspend fun resolve(requests: List<String>): List<Proposal> {
+        val (t, key, model) = prepare(AiPurpose.RESOLVE)
+        if (t.provider == AiProvider.QWEN) return resolveDirect(t, key, requests)
+        val country = settings.current().country
         val tools = listOf(
             ToolDef("usda_search", "Search USDA FoodData Central. Query must be in English.",
                 obj("query_en" to str(), "data_types" to arrOfEnum("Foundation", "SR Legacy", "Survey (FNDDS)"))),
             ToolDef("usda_food", "Get one USDA food by fdcId with per-100 g nutrients.", obj("fdc_id" to JsonObject(mapOf("type" to JsonPrimitive("integer"))))),
-            ToolDef("off_search", "Full-text search in Open Food Facts, filtered to products sold in Poland.", obj("query" to str(), "country" to str())),
+            ToolDef("off_search", "Full-text search in Open Food Facts, filtered to products sold in ${country.nameEn}.", obj("query" to str(), "country" to str())),
             ToolDef("off_product", "Get one Open Food Facts product by barcode.", obj("barcode" to str())),
         )
         val final = ToolDef("propose_foods", "Final answer: one proposal per requested food.", proposeSchema())
@@ -133,10 +142,9 @@ class AiService(
         val seenUsda = java.util.concurrent.ConcurrentHashMap<Long, Nutrients>()
         val seenOff = java.util.concurrent.ConcurrentHashMap<String, Nutrients>()
         val offBrands = java.util.concurrent.ConcurrentHashMap<String, String>()
-        val (t, key, model) = prepare(AiPurpose.RESOLVE)
         val user = "Find nutrition per 100 g for: " + requests.joinToString("; ") { "\"$it\"" }
         val answer = try {
-            t.toolLoop(key, model, Prompts.PROMPT_RESOLVE_V2, user, tools, final, { name, input -> toolResult(name, input, seenUsda, seenOff, offBrands) }, OTHER_TIMEOUT_MS)
+            t.toolLoop(key, model, Prompts.resolveV3(country), user, tools, final, { name, input -> toolResult(name, input, seenUsda, seenOff, offBrands, country) }, OTHER_TIMEOUT_MS)
         } catch (e: ClaudeException) {
             costs.record(AiPurpose.RESOLVE, model, Prompts.RESOLVE_VERSION, e.usage, ok = false, errorCode = e.kind.name)
             throw e
@@ -145,12 +153,165 @@ class AiService(
         return proposals(answer.json, seenUsda, seenOff, offBrands, t.provider)
     }
 
+    /**
+     * Qwen without a tool loop (measured 2026-11-21 on 4 foods: the loop took 228 s and 11 ¢, qwen3.7-plus made one
+     * call per round, repeated reworded USDA queries and sometimes ran out of rounds). Here: one call plans the
+     * queries, the app queries USDA and Open Food Facts itself in parallel, one call picks, and only branded foods
+     * missing from the databases go to the web (in parallel, [QwenTransport.SEARCH_TIMEOUT_MS] each), whose answers
+     * one more call turns into numbers. Invariant 1 holds as in the loop: database numbers come from [seenUsda] / [seenOff].
+     */
+    private suspend fun resolveDirect(t: AiTransport, key: String, requests: List<String>): List<Proposal> {
+        val s = settings.current()
+        val country = s.country
+        val fastModel = s.models.getValue(AiPurpose.PARSE)
+        val pickModel = s.models.getValue(AiPurpose.RESOLVE)
+
+        // 1. Plan.
+        val planSchema = obj(
+            "foods" to arr(
+                obj(
+                    "request" to str(), "queryEn" to str(), "usdaTypes" to arrOfEnum("Foundation", "SR Legacy", "Survey (FNDDS)"),
+                    "branded" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))), "offQuery" to nullable("string"),
+                ),
+            ),
+        )
+        val planInput = buildJsonObject { putJsonArray("foods") { requests.forEach { add(it) } } }.toString()
+        val plan = resolveCall(t, key, fastModel, Prompts.RESOLVE_PLAN_VERSION, Prompts.resolvePlan(country), planInput, planSchema)
+            .arr("foods")
+        // Index by position; a short plan falls back to the request itself as the USDA query.
+        val planned = requests.indices.map { i -> plan.getOrNull(i) ?: buildJsonObject { put("queryEn", requests[i]); put("branded", false) } }
+
+        // 2. The app searches, all foods at once.
+        val seenUsda = java.util.concurrent.ConcurrentHashMap<Long, Nutrients>()
+        val seenOff = java.util.concurrent.ConcurrentHashMap<String, Nutrients>()
+        val offBrands = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val candidates = coroutineScope {
+            planned.map { p ->
+                async {
+                    val errors = mutableListOf<String>()
+                    val usdaHits = try {
+                        val types = p["usdaTypes"]?.let { it as? JsonArray }?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
+                        usda.search(p.s("queryEn").orEmpty(), types).filter { it.per100 != null }
+                    } catch (e: NetException) {
+                        errors += "USDA: ${e.problem.name.lowercase()}"; emptyList()
+                    }
+                    val offQuery = p.s("offQuery")?.takeIf { p["branded"]?.jsonPrimitive?.booleanOrNull == true }
+                    val offHits = if (offQuery == null) emptyList() else try {
+                        off.search(offQuery, country).filter { it.per100 != null }
+                    } catch (e: NetException) {
+                        errors += "Open Food Facts: ${e.problem.name.lowercase()}"; emptyList()
+                    }
+                    usdaHits.forEach { f -> seenUsda[f.fdcId] = f.per100!! }
+                    offHits.forEach { h -> seenOff[h.code] = h.per100!!; h.brand?.let { offBrands[h.code] = it } }
+                    buildJsonArray {
+                        usdaHits.forEach { f -> addJsonObject { put("db", "USDA"); put("ref", f.fdcId.toString()); put("name", f.description); put("dataType", f.dataType); put("per100g", nut(f.per100)) } }
+                        offHits.forEach { h -> addJsonObject { put("db", "OFF"); put("ref", h.code); put("name", h.name); put("brand", h.brand); put("quantity", h.quantity); put("per100g", nut(h.per100)) } }
+                    } to errors
+                }
+            }.awaitAll()
+        }
+
+        // 3. Pick.
+        val pickSchema = proposeSchema().let { base ->
+            val item = base["properties"]!!.jsonObject["foods"]!!.jsonObject["items"]!!.jsonObject
+            val props = item["properties"]!!.jsonObject.toMutableMap().apply { put("choice", enumOf("db", "web", "estimate")) }
+            obj("foods" to arr(obj(*props.map { it.key to it.value.jsonObject }.toTypedArray())))
+        }
+        val pickInput = buildJsonObject {
+            putJsonArray("foods") {
+                requests.forEachIndexed { i, r ->
+                    addJsonObject {
+                        put("request", r)
+                        put("branded", planned[i]["branded"] ?: JsonPrimitive(false))
+                        put("candidates", candidates[i].first)
+                        if (candidates[i].second.isNotEmpty()) put("searchErrors", candidates[i].second.joinToString())
+                    }
+                }
+            }
+        }.toString()
+        val picks = resolveCall(t, key, pickModel, Prompts.RESOLVE_PICK_VERSION, Prompts.resolvePick(country), pickInput, pickSchema)
+            .arr("foods").toMutableList()
+        // The confirm screen pairs proposals with requests verbatim.
+        picks.indices.forEach { i -> requests.getOrNull(i)?.let { r -> picks[i] = JsonObject(picks[i] + ("request" to JsonPrimitive(r))) } }
+
+        // 4. Web, only for what the pick could not match.
+        val webIdx = picks.indices.filter { picks[it].s("choice") == "web" }.take(QwenTransport.MAX_SEARCHES)
+        if (webIdx.isNotEmpty()) {
+            val found = coroutineScope {
+                webIdx.map { i ->
+                    async {
+                        val name = picks[i].s("nameRu")?.takeIf(String::isNotBlank) ?: picks[i].s("request").orEmpty()
+                        val w = try {
+                            t.webLookup(key, "$name — пищевая ценность на 100 г", Prompts.webSearchSystem(country))
+                        } catch (e: ClaudeException) {
+                            costs.record(AiPurpose.RESOLVE, QwenTransport.SEARCH_MODEL, Prompts.RESOLVE_WEB_VERSION, e.usage, ok = false, errorCode = e.kind.name)
+                            null
+                        }
+                        w?.let { costs.record(AiPurpose.RESOLVE, QwenTransport.SEARCH_MODEL, Prompts.RESOLVE_WEB_VERSION, it.usage, ok = it.finished, errorCode = if (it.finished) null else "TIMEOUT") }
+                        i to w?.takeIf { it.finished }?.text
+                    }
+                }.awaitAll()
+            }.filter { it.second != null }
+            if (found.isNotEmpty()) {
+                val exSchema = obj(
+                    "foods" to arr(
+                        obj(
+                            "request" to str(), "found" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                            "kcal" to nullable("number"), "protein" to nullable("number"), "fat" to nullable("number"),
+                            "carbs" to nullable("number"), "fiber" to nullable("number"), "url" to nullable("string"),
+                        ),
+                    ),
+                )
+                val exInput = buildJsonObject {
+                    putJsonArray("foods") { found.forEach { (i, text) -> addJsonObject { put("request", picks[i].s("request")); put("answer", text) } } }
+                }.toString()
+                val extracted = try {
+                    resolveCall(t, key, fastModel, Prompts.RESOLVE_WEB_VERSION, Prompts.RESOLVE_WEB_EXTRACT, exInput, exSchema).arr("foods")
+                } catch (e: ClaudeException) {
+                    emptyList() // the estimates stay; the user sees them marked
+                }
+                found.forEachIndexed { k, (i, _) ->
+                    val x = extracted.getOrNull(k) ?: return@forEachIndexed
+                    val url = x.s("url")
+                    val ok = x["found"]?.jsonPrimitive?.booleanOrNull == true && url != null &&
+                        listOf("kcal", "protein", "fat", "carbs").all { x.d(it) != null }
+                    if (ok) {
+                        picks[i] = JsonObject(
+                            picks[i] + mapOf(
+                                "source" to JsonPrimitive("WEB"), "sourceRef" to JsonPrimitive(url), "confidence" to JsonPrimitive("HIGH"),
+                                "kcal" to JsonPrimitive(x.d("kcal")), "protein" to JsonPrimitive(x.d("protein")),
+                                "fat" to JsonPrimitive(x.d("fat")), "carbs" to JsonPrimitive(x.d("carbs")),
+                                "fiber" to (x.d("fiber")?.let(::JsonPrimitive) ?: JsonNull),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        return proposals(JsonObject(mapOf("foods" to JsonArray(picks))), seenUsda, seenOff, offBrands, t.provider)
+    }
+
+    /** One structured RESOLVE step, recorded under RESOLVE with its own model and prompt version. */
+    private suspend fun resolveCall(t: AiTransport, key: String, model: String, version: String, system: String, input: String, schema: JsonObject): JsonObject {
+        val answer = try {
+            t.json(key, model, system, listOf(Part.Text(input)), schema, 4000, OTHER_TIMEOUT_MS)
+        } catch (e: ClaudeException) {
+            costs.record(AiPurpose.RESOLVE, model, version, e.usage, ok = false, errorCode = e.kind.name)
+            throw e
+        }
+        costs.record(AiPurpose.RESOLVE, model, version, answer.usage, ok = true)
+        return answer.json
+    }
+
+    private fun JsonObject.arr(k: String): List<JsonObject> = (this[k] as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
+
     private suspend fun toolResult(
         name: String,
         input: JsonObject,
         seenUsda: MutableMap<Long, Nutrients>,
         seenOff: MutableMap<String, Nutrients>,
         offBrands: MutableMap<String, String>,
+        country: app.grammovka.data.settings.Country,
     ): ToolOutput {
         val (content, isError) = try {
             when (name) {
@@ -166,7 +327,7 @@ class AiService(
                     (f?.let { buildJsonObject { put("fdcId", it.fdcId); put("description", it.description); put("per100g", nut(it.per100)) } }?.toString() ?: "not found") to false
                 }
                 "off_search" -> {
-                    val hits = off.search(input.s("query").orEmpty())
+                    val hits = off.search(input.s("query").orEmpty(), country)
                     hits.forEach { h -> h.per100?.let { seenOff[h.code] = it }; h.brand?.let { offBrands[h.code] = it } }
                     buildJsonArray { hits.forEach { h -> addJsonObject { put("barcode", h.code); put("name", h.name); put("brand", h.brand); put("quantity", h.quantity); put("per100g", nut(h.per100)) } } }.toString() to false
                 }
@@ -258,7 +419,7 @@ class AiService(
             "ean" to nullable("string"), "notes" to nullable("string"),
         )
         val o = structured(
-            AiPurpose.LABEL, Prompts.LABEL_VERSION, Prompts.PROMPT_LABEL_V1,
+            AiPurpose.LABEL, Prompts.LABEL_VERSION, Prompts.labelV2(settings.current().country),
             listOf(Part.Jpeg(jpeg), Part.Text("Extract the nutrition table.")), schema, 1000, OTHER_TIMEOUT_MS,
         )
         val notes = o.s("notes")
@@ -312,7 +473,7 @@ class AiService(
             val note = hint?.trim()?.takeIf(String::isNotEmpty)
             add(Part.Text(if (note != null) "User note: $note" else "No user note."))
         }
-        val o = structured(AiPurpose.MEAL_PHOTO, Prompts.PHOTO_VERSION, Prompts.PROMPT_PHOTO_V2, parts, schema, 2000, OTHER_TIMEOUT_MS)
+        val o = structured(AiPurpose.MEAL_PHOTO, Prompts.PHOTO_VERSION, Prompts.photoV3(settings.current().country), parts, schema, 2000, OTHER_TIMEOUT_MS)
         val requests = PhotoMapping.requests(o)
         val resolved = if (requests.isEmpty()) emptyList() else resolve(requests)
         return PhotoMapping.combine(o, resolved, barcode)
